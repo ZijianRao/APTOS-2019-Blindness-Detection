@@ -16,22 +16,25 @@ import os
 device = torch.device("cuda:0")
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
-import data_loader as data_helper
+import data_loader
 
 PRETRAINED_MODEL_PATH = '../../pytorch-pretrained-models'
 
 def main():
+    train_loader, valid_loader = data_loader.prepare_data()
+
     model = torchvision.models.resnet101(pretrained=False)
     pre_trained_path = os.path.join(PRETRAINED_MODEL_PATH, 'resnet101-5d3b4d8f.pth')
     model.load_state_dict(torch.load(pre_trained_path))
     num_features = model.fc.in_features
+    # one hot representation
+    # model.fc = nn.Linear(num_features, 5)
+    # regression problem
     model.fc = nn.Linear(num_features, 1)
 
     model = model.to(device)
 
-    train_dataset = data_helper.RetinopathyDatasetTrain(csv_file='../data/train.csv')
-    data_loader = torch.utils.data.DataLoader(train_dataset, batch_size=16, shuffle=True, num_workers=4)
-
+    # only train those layers
     plist = [
             {'params': model.layer4.parameters(), 'lr': 1e-4, 'weight': 0.001},
             {'params': model.fc.parameters(), 'lr': 1e-3}
@@ -49,7 +52,7 @@ def main():
         scheduler.step()
         model.train()
         running_loss = 0.0
-        tk0 = tqdm(data_loader, total=int(len(data_loader)))
+        tk0 = tqdm(train_loader, total=int(len(train_loader)))
         counter = 0
         for bi, d in enumerate(tk0):
             inputs = d["image"]
@@ -64,13 +67,13 @@ def main():
                 optimizer.step()
             running_loss += loss.item() * inputs.size(0)
             counter += 1
-            tk0.set_postfix(loss=(running_loss / (counter * data_loader.batch_size)))
-        epoch_loss = running_loss / len(data_loader)
+            tk0.set_postfix(loss=(running_loss / (counter * train_loader.batch_size)))
+        epoch_loss = running_loss / len(train_loader)
         print('Training Loss: {:.4f}'.format(epoch_loss))
 
     time_elapsed = time.time() - since
     print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
-    torch.save(model.state_dict(), "model.bin")
+    torch.save(model.state_dict(), "../data/model.bin")
 
 if __name__ == '__main__':
     main()

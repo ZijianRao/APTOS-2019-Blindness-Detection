@@ -1,6 +1,7 @@
 import pandas as pd
 import os.path
 import numpy as np
+from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 
 
@@ -10,6 +11,7 @@ import cv2
 
 import torch
 from torch.utils.data import Dataset
+from torch.utils.data.sampler import SubsetRandomSampler
 from torchvision import transforms
 
 import data_transform
@@ -25,7 +27,7 @@ class RetinopathyDataset(Dataset):
 
         self.data = pd.read_csv(csv_file)
         self.transform = transform
-        self.data_type = data_type
+        self.data_type = data_type 
 
     def __len__(self):
         return len(self.data)
@@ -46,11 +48,19 @@ class RetinopathyDataset(Dataset):
 
 def prepare_data():
     """ Prepare train, validation, and test data """
-    dataset = RetinopathyDataset(transform=data_transform.data_transforms, csv=TRAIN_DATA_PATH, datatype='train')
-    test_set = RetinopathyDataset(df=test, datatype='test', transform=data_transforms_test)
-    tr, val = train_test_split(train.diagnosis, stratify=train.diagnosis, test_size=0.1)
+    dataset = RetinopathyDataset(transform=data_transform.data_transforms, csv_file=TRAIN_DATA_PATH, data_type='train')
+    # test_set = RetinopathyDataset(transform=data_transform.data_transforms, csv=TRAIN_DATA_PATH, datatype='train')
+    train = dataset.data
+    tr, val = train_test_split(train['diagnosis'], stratify=train['diagnosis'], test_size=0.2)
     train_sampler = SubsetRandomSampler(list(tr.index))
     valid_sampler = SubsetRandomSampler(list(val.index))
+
+    batch_size = 64
+    num_workers = 0
+    # prepare data loaders (combine dataset and sampler)
+    train_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, sampler=train_sampler, num_workers=num_workers)
+    valid_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, sampler=valid_sampler, num_workers=num_workers)
+    return train_loader, valid_loader
 
 
 def prepare_labels(y):

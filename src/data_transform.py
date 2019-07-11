@@ -1,11 +1,12 @@
 
 import albumentations # data augmentation
 from albumentations import torch as AT  
+SIZE = 128
 
 # some augmentations setup
 # https://www.kaggle.com/artgor/basic-eda-and-baseline-pytorch-model
 data_transforms = albumentations.Compose([
-    albumentations.Resize(224, 224),
+    albumentations.Resize(SIZE, SIZE),
     albumentations.HorizontalFlip(),
     albumentations.RandomBrightness(),
     albumentations.ShiftScaleRotate(rotate_limit=15, scale_limit=0.10),
@@ -16,7 +17,7 @@ data_transforms = albumentations.Compose([
     ])
 
 data_transforms_test = albumentations.Compose([
-    albumentations.Resize(224, 224),
+    albumentations.Resize(SIZE, SIZE),
     albumentations.Normalize(),
     AT.ToTensor()
     ])
