@@ -1,7 +1,7 @@
 
 import albumentations # data augmentation
 from albumentations import torch as AT  
-SIZE = 128
+SIZE = 224
 
 # some augmentations setup
 # https://www.kaggle.com/artgor/basic-eda-and-baseline-pytorch-model
