@@ -2,13 +2,7 @@ import pandas as pd
 import os.path
 import numpy as np
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder, OneHotEncoder
-
-
-from PIL import Image, ImageFile
 import cv2
-
-
 import torch
 from torch.utils.data import Dataset
 from torch.utils.data.sampler import SubsetRandomSampler
@@ -16,8 +10,6 @@ from torchvision import transforms
 
 import data_transform
 import config
-
-
 
 
 class RetinopathyDataset(Dataset):
@@ -36,12 +28,14 @@ class RetinopathyDataset(Dataset):
         image_path = self.image_path_maker(image_name)
         image = image_reader(image_path)
 
-        label = self.data['diagnosis'].values[idx]
-        label = np.expand_dims(label, -1)
+        if self.datatype == 'train':
+            label = self.data['diagnosis'].values[idx]
+            label = np.expand_dims(label, -1)
+        else:
+            label = 0 
 
         if self.transform is not None:
-            image = self.transform(image=image)
-            image = image['image']
+            image = self.transform(image)
 
         return image, label
 
@@ -53,27 +47,55 @@ def image_reader(path):
     image = data_transform.crop_image_from_gray(image)
     image = cv2.resize(image, (config.IMG_SIZE, config.IMG_SIZE))
     image = cv2.addWeighted(image, 4, cv2.GaussianBlur(image, (0,0), 30), -4, 128)
-    # image = transforms.ToPILImage()(image)
+    image = transforms.ToPILImage()(image)
     return image
 
 
-def image_path_maker(image_name):
-    img_path = os.path.join(config.DATA_PATH, config.TRAIN_DATA_FOLDER, image_name + '.png')
-    return img_path
+def image_path_maker(datatype='train', local=True):
+    if datatype == 'train':
+        if local:
+            path_prefix = config.LOCAL_TRAIN_IMAGE_PATH
+        else:
+            path_prefix = config.REMOTE_TRAIN_IMAGE_PATH
+    else:
+        if local:
+            path_prefix = config.LOCAL_TEST_IMAGE_PATH
+        else:
+            path_prefix = config.REMOTE_TEST_IMAGE_PATH
+
+    def image_path_maker_helper(image_name):
+        img_path = os.path.join(path_prefix, image_name + '.png')
+        return img_path
+    return image_path_maker_helper 
 
 
-def prepare_train():
+def prepare_train(local=True):
     """ Prepare train, validation data """
-    train_data = pd.read_csv(config.TRAIN_DATA_PATH)
-    dataset = RetinopathyDataset(train_data, image_path_maker, transform=data_transform.test_transform, datatype='train')
+    if local == True:
+        train_data = pd.read_csv(config.LOCAL_TRAIN_DATA_PATH)
+    else:
+        train_data = pd.read_csv(config.REMOTE_TRAIN_DATA_PATH)
+
+    dataset = RetinopathyDataset(train_data, image_path_maker('train', local=local), transform=data_transform.test_transform, datatype='train')
     train_loader, valid_loader = prepare_data_loader(dataset, train_data['diagnosis'])
     return train_loader, valid_loader
+
+def prepare_test(local=True):
+    """ Prepare test data """
+    if local == True:
+        test_data = pd.read_csv(config.LOCAL_TEST_DATA_PATH)
+    else:
+        test_data = pd.read_csv(config.REMOTE_TEST_DATA_PATH)
+
+    dataset = RetinopathyDataset(test_data, image_path_maker('test', local=local), transform=data_transform.test_transform, datatype='test')
+    test_loader = torch.utils.data.DataLoader(dataset, batch_size=config.BATCH_SIZE, num_workers=0, shuffle=False)
+    return test_loader, test_data
 
 
 def prepare_data_loader(dataset, df):
     train_sampler, valid_sampler = prepare_sampler(df)
-    train_loader = torch.utils.data.DataLoader(dataset, batch_size=config.BATCH_SIZE, sampler=train_sampler)
-    valid_loader = torch.utils.data.DataLoader(dataset, batch_size=config.BATCH_SIZE, sampler=valid_sampler)
+    train_loader = torch.utils.data.DataLoader(dataset, batch_size=config.BATCH_SIZE, sampler=train_sampler, num_workers=config.NUM_WORKERS)
+    valid_loader = torch.utils.data.DataLoader(dataset, batch_size=config.BATCH_SIZE, sampler=valid_sampler, num_workers=config.NUM_WORKERS)
     return train_loader, valid_loader
 
 

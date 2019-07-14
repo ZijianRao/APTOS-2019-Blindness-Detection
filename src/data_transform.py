@@ -1,28 +1,20 @@
 import numpy as np
 import cv2
-import albumentations # data augmentation
-from albumentations import torch as AT  
-SIZE = 224
-
+from torchvision import transforms
 import config
 
-# some augmentations setup
-# https://www.kaggle.com/artgor/basic-eda-and-baseline-pytorch-model
-train_transform = albumentations.Compose([
-    albumentations.HorizontalFlip(),
-    albumentations.RandomBrightness(),
-    albumentations.ShiftScaleRotate(rotate_limit=15, scale_limit=0.10),
-    albumentations.JpegCompression(80),
-    albumentations.HueSaturationValue(),
-    albumentations.Normalize(config.NORMALIZE),
-    AT.ToTensor(),
-    ])
+train_transform = transforms.Compose([
+    transforms.RandomHorizontalFlip(),
+    transforms.RandomRotation((-120, 120)),
+    transforms.ToTensor(),
+    transforms.Normalize(*config.NORMALIZE)])
 
-test_transform = albumentations.Compose([
-    albumentations.HorizontalFlip(),
-    albumentations.Normalize(config.NORMALIZE),
-    AT.ToTensor(),
-    ])
+test_transform = transforms.Compose([
+    transforms.RandomHorizontalFlip(),
+    transforms.RandomRotation((-120, 120)),
+    transforms.ToTensor(),
+    transforms.Normalize(*config.NORMALIZE)
+])
 
 def crop_image_from_gray(img,tol=7):
     """ Crop function copied from https://www.kaggle.com/chanhu/eye-inference-num-class-1-ver3"""
