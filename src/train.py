@@ -76,7 +76,7 @@ def runner():
 
 
 def main():
-    train_loader, valid_loader = data_loader.prepare_data()
+    train_loader, valid_loader = data_loader.prepare_train()
 
     # model = torchvision.models.resnet101(pretrained=False)
     # pre_trained_path = os.path.join(PRETRAINED_MODEL_PATH, 'resnet101-5d3b4d8f.pth')
@@ -111,9 +111,7 @@ def main():
         running_loss = 0.0
         tk0 = tqdm(train_loader, total=int(len(train_loader)))
         counter = 0
-        for bi, d in enumerate(tk0):
-            inputs = d["image"]
-            labels = d["labels"].view(-1, 1)
+        for bi, (inputs, labels) in enumerate(tk0):
             inputs = inputs.to(device, dtype=torch.float)
             labels = labels.to(device, dtype=torch.float)
             optimizer.zero_grad()

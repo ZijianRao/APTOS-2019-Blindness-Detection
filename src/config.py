@@ -1,0 +1,9 @@
+TRAIN_DATA_PATH = '../data/train.csv'
+DATA_PATH = '../data/'
+TRAIN_DATA_FOLDER = 'train_images'
+
+VALIDATION_SIZE = 0.2
+BATCH_SIZE = 64
+IMG_SIZE = 224
+# NORMALIZE = [0.485, 0.456, 0.406], [0.229, 0.224, 0.225]
+NORMALIZE = None
