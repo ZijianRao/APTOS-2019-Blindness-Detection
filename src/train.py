@@ -5,8 +5,6 @@ import torchvision
 import torch.nn as nn
 from tqdm import tqdm
 
-from PIL import Image, ImageFile
-from torch.utils.data import Dataset
 import torch
 import torch.optim as optim
 from torchvision import transforms
@@ -14,7 +12,6 @@ from torch.optim import lr_scheduler
 import os
 
 device = torch.device("cuda:0")
-ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 import data_loader
 
