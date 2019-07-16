@@ -4,6 +4,7 @@ from torchvision import transforms
 import config
 
 train_transform = transforms.Compose([
+    transforms.RandomAffine((-120, 120)),
     transforms.RandomHorizontalFlip(),
     transforms.RandomRotation((-120, 120)),
     transforms.ToTensor(),

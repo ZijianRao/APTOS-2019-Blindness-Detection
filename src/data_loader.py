@@ -1,32 +1,62 @@
 import pandas as pd
 import os.path
 import numpy as np
+from tqdm import tqdm
+from PIL import Image
+
 from sklearn.model_selection import train_test_split
 import cv2
 import torch
 from torch.utils.data import Dataset
 from torch.utils.data.sampler import SubsetRandomSampler
 from torchvision import transforms
+import pickle
 
 import data_transform
 import config
 
+def generateTrainArray():
+    if os.path.exists(config.LOCAL_TRAIN_IMAGE_ARRAY_PATH):
+        x_train = pickle.load(open(config.LOCAL_TRAIN_IMAGE_ARRAY_PATH, 'rb'))
+    else:
+        train_data = pd.read_csv(config.LOCAL_TRAIN_DATA_PATH)
+        N = train_data.shape[0]
+        maker = image_path_maker('train', local=True)
+        # x_train = np.empty((N, config.IMG_SIZE, config.IMG_SIZE, 3), dtype=np.uint8)
+
+        id_codes = train_data['id_code'].values.tolist()
+        x_train = []
+        for i, id_code in tqdm(enumerate(id_codes), total=N):
+            image_path = maker(id_code)
+            image = image_reader(image_path)
+            x_train.append(image)
+            # image = np.array(image, dtype=np.uint8)
+            # x_train[i, :, :, :] = image
+            # image = Image.fromarray(image)
+        pickle.dump(x_train, open(config.LOCAL_TRAIN_IMAGE_ARRAY_PATH, 'wb'))
+    return x_train
+
+
 
 class RetinopathyDataset(Dataset):
 
-    def __init__(self, data, image_path_maker, transform=None, datatype='train'):
+    def __init__(self, data, image_path_maker, transform=None, datatype='train', cache=None):
         self.data = data
         self.transform = transform
         self.datatype = datatype 
         self.image_path_maker = image_path_maker
+        self.cache = cache
 
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, idx):
-        image_name = self.data['id_code'].values[idx]
-        image_path = self.image_path_maker(image_name)
-        image = image_reader(image_path)
+        if self.cache is None:
+            image_name = self.data['id_code'].values[idx]
+            image_path = self.image_path_maker(image_name)
+            image = image_reader(image_path)
+        else:
+            image = self.cache[idx]
 
         if self.datatype == 'train':
             label = self.data['diagnosis'].values[idx]
@@ -75,8 +105,10 @@ def prepare_train(local=True):
         train_data = pd.read_csv(config.LOCAL_TRAIN_DATA_PATH)
     else:
         train_data = pd.read_csv(config.REMOTE_TRAIN_DATA_PATH)
+    
+    cache = generateTrainArray()
 
-    dataset = RetinopathyDataset(train_data, image_path_maker('train', local=local), transform=data_transform.test_transform, datatype='train')
+    dataset = RetinopathyDataset(train_data, image_path_maker('train', local=local), transform=data_transform.test_transform, datatype='train', cache=cache)
     train_loader, valid_loader = prepare_data_loader(dataset, train_data['diagnosis'])
     return train_loader, valid_loader
 
@@ -121,6 +153,7 @@ def prepare_labels(y):
     return y, label_encoder
 
 if __name__ == '__main__':
-    train_dataset = RetinopathyDatasetTrain(csv_file='../data/train.csv')
-    df = train_dataset.data
-    print(prepare_labels(df['diagnosis']))
+    # train_dataset = RetinopathyDatasetTrain(csv_file='../data/train.csv')
+    # df = train_dataset.data
+    # print(prepare_labels(df['diagnosis']))
+    generateTrainArray()
