@@ -15,9 +15,11 @@ import pickle
 import data_transform
 import config
 
-def generateTrainArray():
-    if os.path.exists(config.LOCAL_TRAIN_IMAGE_ARRAY_PATH):
-        x_train = pickle.load(open(config.LOCAL_TRAIN_IMAGE_ARRAY_PATH, 'rb'))
+def generateTrainArray(img_size=config.IMG_SIZE):
+    path = config.LOCAL_TRAIN_IMAGE_ARRAY_PATH.format(img_size)
+
+    if os.path.exists(path):
+        x_train = pickle.load(open(path, 'rb'))
     else:
         train_data = pd.read_csv(config.LOCAL_TRAIN_DATA_PATH)
         N = train_data.shape[0]
@@ -33,7 +35,7 @@ def generateTrainArray():
             # image = np.array(image, dtype=np.uint8)
             # x_train[i, :, :, :] = image
             # image = Image.fromarray(image)
-        pickle.dump(x_train, open(config.LOCAL_TRAIN_IMAGE_ARRAY_PATH, 'wb'))
+        pickle.dump(x_train, open(path, 'wb'))
     return x_train
 
 
@@ -70,12 +72,12 @@ class RetinopathyDataset(Dataset):
         return image, label
 
 
-def image_reader(path):
+def image_reader(path, img_size=config.IMG_SIZE):
     """ Read image resize it and return as PIL image"""
     image = cv2.imread(path)
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     image = data_transform.crop_image_from_gray(image)
-    image = cv2.resize(image, (config.IMG_SIZE, config.IMG_SIZE))
+    image = cv2.resize(image, (img_size, img_size))
     image = cv2.addWeighted(image, 4, cv2.GaussianBlur(image, (0,0), 30), -4, 128)
     image = transforms.ToPILImage()(image)
     return image
@@ -156,4 +158,4 @@ if __name__ == '__main__':
     # train_dataset = RetinopathyDatasetTrain(csv_file='../data/train.csv')
     # df = train_dataset.data
     # print(prepare_labels(df['diagnosis']))
-    generateTrainArray()
+    generateTrainArray(384)

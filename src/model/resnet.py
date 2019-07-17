@@ -26,5 +26,5 @@ class Resnet(ModelRoot):
                 {'params': model.layer4.parameters(), 'lr': 1e-4, 'weight': 0.001},
                 {'params': model.fc.parameters(), 'lr': 1e-3}
                 ]
-        plist = model.parameters()
+        # plist = model.parameters()
         return model, plist

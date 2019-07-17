@@ -7,6 +7,7 @@ train_transform = transforms.Compose([
     transforms.RandomAffine((-120, 120)),
     transforms.RandomHorizontalFlip(),
     transforms.RandomRotation((-120, 120)),
+    # transforms.RandomResizedCrop(config.IMG_SIZE, scale=(0.5, 1.0)),
     transforms.ToTensor(),
     transforms.Normalize(*config.NORMALIZE)])
 
