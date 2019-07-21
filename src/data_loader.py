@@ -1,6 +1,9 @@
 import pandas as pd
 import os.path
 import numpy as np
+from joblib import Parallel, delayed
+import psutil
+import functools
 from tqdm import tqdm
 from PIL import Image
 
@@ -12,59 +15,118 @@ from torch.utils.data.sampler import SubsetRandomSampler
 from torchvision import transforms
 import pickle
 
+
 import data_transform
 import config
 
-def generateTrainArray(img_size=config.IMG_SIZE):
-    path = config.LOCAL_TRAIN_IMAGE_ARRAY_PATH.format(img_size)
+def workflow_mix():
+    data = load_train_description()
+    # use old as train
+    # use new as valid
+    train_df = data[data['set'] == 'old']
+    valid_df = data[data['set'] == 'new']
 
-    if os.path.exists(path):
-        x_train = pickle.load(open(path, 'rb'))
+    train_bucket_iter = prepare_bucket(train_df, bucket_size=config.BUCKET_SPLIT, adjustment=False)
+    valid_bucket_iter = prepare_bucket(valid_df, bucket_size=1, adjustment=True)
+    return train_bucket_iter, valid_bucket_iter
+
+def workflow_train():
+    data = load_train_description()
+    # use old as train
+    # use new as valid
+    train_df = data[data['set'] == 'new']
+    train_df = train_df.sample(frac=1).reset_index(drop=True)
+    train = train_df.iloc[:2900]
+    valid = train_df.iloc[2900:]
+
+    train_loader = list(prepare_bucket(train, bucket_size=1, adjustment=True))[0]
+    valid_loader = list(prepare_bucket(valid, bucket_size=1, adjustment=True))[0]
+    return train_loader,valid_loader 
+
+def load_train_description():
+    """ Load train label data for 15 and 19
+    Meta data and data directly
+    """
+    old_train = pd.read_csv(config.PREV_DATA_PATH)
+    train = pd.read_csv(config.CLEAN_TRAIN_DATA_PATH)
+    df1 = train[['id_code', 'diagnosis']]
+    df1['set'] = 'new'
+    old_train['set'] = 'old'
+    df2 = old_train.rename(columns={'image': 'id_code', 'level': 'diagnosis'})
+    df = pd.concat([df1, df2])
+    df = df.reset_index(drop=True)
+    df['path'] = df.apply(path_maker, axis=1)
+
+    return df
+
+
+def path_maker(row):
+    id_code = row['id_code']
+    datatype = row['set']
+    if datatype == 'new':
+        template = config.TRAIN_IMAGE_PATH
     else:
-        train_data = pd.read_csv(config.LOCAL_TRAIN_DATA_PATH)
-        N = train_data.shape[0]
-        maker = image_path_maker('train', local=True)
-        # x_train = np.empty((N, config.IMG_SIZE, config.IMG_SIZE, 3), dtype=np.uint8)
+        template = config.PREV_TRAIN_IMAGE_PATH
+    return template.format(id_code)
 
-        id_codes = train_data['id_code'].values.tolist()
-        x_train = []
-        for i, id_code in tqdm(enumerate(id_codes), total=N):
-            image_path = maker(id_code)
-            image = image_reader(image_path)
-            x_train.append(image)
-            # image = np.array(image, dtype=np.uint8)
-            # x_train[i, :, :, :] = image
-            # image = Image.fromarray(image)
-        pickle.dump(x_train, open(path, 'wb'))
+
+def load_train_image(path_group, img_size=config.IMG_SIZE, adjustment=True):
+    """ Load train images based on input path info
+    
+    Args:
+        path_group ([type]): [description]
+        img_size ([type], optional): [description]. Defaults to config.IMG_SIZE.
+        adjustment (bool, optional): [description]. Defaults to True.
+    """
+    helper = functools.partial(image_reader, adjustment=adjustment, img_size=img_size)
+    x_train = Parallel(n_jobs=psutil.cpu_count(), verbose=1)(
+        delayed(helper)(fp) for fp in path_group)
     return x_train
 
 
+def image_reader(path, adjustment=True, img_size=config.IMG_SIZE):
+    """ Read image resize it and return as PIL image"""
+    image = cv2.imread(path)
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+    if adjustment:
+        image = data_transform.crop_image_from_gray(image)
+        image = cv2.resize(image, (img_size, img_size))
+        image = cv2.addWeighted(image, 4, cv2.GaussianBlur(image, (0,0), 30), -4, 128)
+    else:
+        image = cv2.resize(image, (img_size, img_size))
+
+    image = transforms.ToPILImage()(image)
+    return image
+
+
+def prepare_bucket(train_df, bucket_size=config.BUCKET_SPLIT, adjustment=False):
+    for df in np.array_split(train_df, bucket_size):
+        data = load_train_image(df['path'].values, adjustment=False)
+        yield prepare_loader(data, df, data_transform.test_transform)
+
+
+def prepare_loader(data, labels, transform):
+    dataset = RetinopathyDataset(labels, data, transform)
+    data_loader = torch.utils.data.DataLoader(dataset, batch_size=config.BATCH_SIZE, num_workers=0, shuffle=True)
+    return data_loader
+
 
 class RetinopathyDataset(Dataset):
+    """ For training purpose """
 
-    def __init__(self, data, image_path_maker, transform=None, datatype='train', cache=None):
-        self.data = data
+    def __init__(self, labels, image_group, transform=None):
+        self.data = labels
+        self.image_group = image_group
         self.transform = transform
-        self.datatype = datatype 
-        self.image_path_maker = image_path_maker
-        self.cache = cache
 
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, idx):
-        if self.cache is None:
-            image_name = self.data['id_code'].values[idx]
-            image_path = self.image_path_maker(image_name)
-            image = image_reader(image_path)
-        else:
-            image = self.cache[idx]
-
-        if self.datatype == 'train':
-            label = self.data['diagnosis'].values[idx]
-            label = np.expand_dims(label, -1)
-        else:
-            label = 0 
+        image = self.image_group[idx]
+        label = self.data['diagnosis'].values[idx]
+        label = np.expand_dims(label, -1)
 
         if self.transform is not None:
             image = self.transform(image)
@@ -72,74 +134,14 @@ class RetinopathyDataset(Dataset):
         return image, label
 
 
-def image_reader(path, img_size=config.IMG_SIZE):
-    """ Read image resize it and return as PIL image"""
-    image = cv2.imread(path)
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    image = data_transform.crop_image_from_gray(image)
-    image = cv2.resize(image, (img_size, img_size))
-    image = cv2.addWeighted(image, 4, cv2.GaussianBlur(image, (0,0), 30), -4, 128)
-    image = transforms.ToPILImage()(image)
-    return image
 
-
-def image_path_maker(datatype='train', local=True):
-    if datatype == 'train':
-        if local:
-            path_prefix = config.LOCAL_TRAIN_IMAGE_PATH
-        else:
-            path_prefix = config.REMOTE_TRAIN_IMAGE_PATH
-    else:
-        if local:
-            path_prefix = config.LOCAL_TEST_IMAGE_PATH
-        else:
-            path_prefix = config.REMOTE_TEST_IMAGE_PATH
-
-    def image_path_maker_helper(image_name):
-        img_path = os.path.join(path_prefix, image_name + '.png')
-        return img_path
-    return image_path_maker_helper 
-
-
-def prepare_train(local=True):
-    """ Prepare train, validation data """
-    if local == True:
-        train_data = pd.read_csv(config.LOCAL_TRAIN_DATA_PATH)
-    else:
-        train_data = pd.read_csv(config.REMOTE_TRAIN_DATA_PATH)
-    
-    cache = generateTrainArray()
-
-    dataset = RetinopathyDataset(train_data, image_path_maker('train', local=local), transform=data_transform.test_transform, datatype='train', cache=cache)
-    train_loader, valid_loader = prepare_data_loader(dataset, train_data['diagnosis'])
-    return train_loader, valid_loader
-
-def prepare_test(local=True):
-    """ Prepare test data """
-    if local == True:
-        test_data = pd.read_csv(config.LOCAL_TEST_DATA_PATH)
-    else:
-        test_data = pd.read_csv(config.REMOTE_TEST_DATA_PATH)
-
-    dataset = RetinopathyDataset(test_data, image_path_maker('test', local=local), transform=data_transform.test_transform, datatype='test')
-    test_loader = torch.utils.data.DataLoader(dataset, batch_size=config.BATCH_SIZE, num_workers=0, shuffle=False)
-    return test_loader, test_data
-
-
-def prepare_data_loader(dataset, df):
-    train_sampler, valid_sampler = prepare_sampler(df)
-    train_loader = torch.utils.data.DataLoader(dataset, batch_size=config.BATCH_SIZE, sampler=train_sampler, num_workers=config.NUM_WORKERS)
-    valid_loader = torch.utils.data.DataLoader(dataset, batch_size=config.BATCH_SIZE, sampler=valid_sampler, num_workers=config.NUM_WORKERS)
-    return train_loader, valid_loader
-
-
+###############DUMP
 def prepare_sampler(df):
     tr, val = train_test_split(df, stratify=df, test_size=config.VALIDATION_SIZE)
     train_sampler = SubsetRandomSampler(list(tr.index))
     valid_sampler = SubsetRandomSampler(list(val.index))
     return train_sampler, valid_sampler
 
-###############DUMP
 def prepare_labels(y):
     """ CLASSIFICATION SETUP: Transform 5 scores to vector representation"""
     # From here: https://www.kaggle.com/pestipeti/keras-cnn-starter
@@ -158,4 +160,4 @@ if __name__ == '__main__':
     # train_dataset = RetinopathyDatasetTrain(csv_file='../data/train.csv')
     # df = train_dataset.data
     # print(prepare_labels(df['diagnosis']))
-    generateTrainArray(384)
+    image_reader('../data/previous/resized_train_15/10_left.jpg')
