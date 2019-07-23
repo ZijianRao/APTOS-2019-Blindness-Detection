@@ -8,6 +8,8 @@ from tqdm import tqdm
 from PIL import Image
 
 from sklearn.model_selection import train_test_split
+from sklearn.model_selection import KFold
+
 import cv2
 import torch
 from torch.utils.data import Dataset
@@ -23,7 +25,7 @@ def workflow_mix():
     data = load_train_description()
     # use old as train
     # use new as valid
-    train_df = data[data['set'] == 'old']
+    train_df = data[data['set'] != 'new']
     valid_df = data[data['set'] == 'new']
 
     train_bucket_iter = prepare_bucket(train_df, bucket_size=config.BUCKET_SPLIT, adjustment=False)
@@ -41,18 +43,49 @@ def workflow_train():
 
     train_loader = list(prepare_bucket(train, bucket_size=1, adjustment=True))[0]
     valid_loader = list(prepare_bucket(valid, bucket_size=1, adjustment=True))[0]
-    return train_loader,valid_loader 
+    print(train_loader)
+    return train_loader, valid_loader 
+
+def cv_train_loader(fold=5):
+    data = load_train_description()
+    # use old as train
+    # use new as valid
+    df = data[data['set'] == 'new']
+
+    kf = KFold(n_splits=fold)
+    data = load_train_image(df['path'].values, adjustment=True)
+    # data = np.array(data)
+
+    def list_indexer(data, index_array):
+        return [data[i] for i in index_array]
+
+    for train_index, valid_index in kf.split(df):
+        train = df.iloc[train_index]
+        train_image = list_indexer(data, train_index)
+        valid = df.iloc[valid_index]
+        valid_image = list_indexer(data, valid_index)
+
+        loader_tmp1 = prepare_loader(train_image, train, data_transform.train_transform)
+        loader_tmp2 = prepare_loader(valid_image, valid, data_transform.train_transform)
+
+        yield loader_tmp1, loader_tmp2
+
+
 
 def load_train_description():
     """ Load train label data for 15 and 19
     Meta data and data directly
     """
     old_train = pd.read_csv(config.PREV_DATA_PATH)
+    old_test = pd.read_csv(config.PREV_TEST_PATH)
     train = pd.read_csv(config.CLEAN_TRAIN_DATA_PATH)
     df1 = train[['id_code', 'diagnosis']]
     df1['set'] = 'new'
-    old_train['set'] = 'old'
-    df2 = old_train.rename(columns={'image': 'id_code', 'level': 'diagnosis'})
+    old_train['set'] = 'old_train'
+    old_test = old_test[['image', 'level']]
+    old_test['set'] = 'old_test'
+    old_data = pd.concat([old_train, old_test])
+    df2 = old_data.rename(columns={'image': 'id_code', 'level': 'diagnosis'})
     df = pd.concat([df1, df2])
     df = df.reset_index(drop=True)
     df['path'] = df.apply(path_maker, axis=1)
@@ -65,8 +98,10 @@ def path_maker(row):
     datatype = row['set']
     if datatype == 'new':
         template = config.TRAIN_IMAGE_PATH
-    else:
+    elif datatype == 'old_train':
         template = config.PREV_TRAIN_IMAGE_PATH
+    elif datatype == 'old_test':
+        template = config.PREV_TEST_IMAGE_PATH
     return template.format(id_code)
 
 
@@ -102,8 +137,9 @@ def image_reader(path, adjustment=True, img_size=config.IMG_SIZE):
 
 def prepare_bucket(train_df, bucket_size=config.BUCKET_SPLIT, adjustment=False):
     for df in np.array_split(train_df, bucket_size):
-        data = load_train_image(df['path'].values, adjustment=False)
-        yield prepare_loader(data, df, data_transform.test_transform)
+        data = load_train_image(df['path'].values, adjustment=adjustment)
+        # df = df.reset_index(drop=True)
+        yield prepare_loader(data, df, data_transform.train_transform)
 
 
 def prepare_loader(data, labels, transform):
@@ -160,4 +196,5 @@ if __name__ == '__main__':
     # train_dataset = RetinopathyDatasetTrain(csv_file='../data/train.csv')
     # df = train_dataset.data
     # print(prepare_labels(df['diagnosis']))
-    image_reader('../data/previous/resized_train_15/10_left.jpg')
+    # image_reader('../data/previous/resized_train_15/10_left.jpg')
+    workflow_train()
