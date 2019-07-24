@@ -28,8 +28,8 @@ def workflow_mix():
     train_df = data[data['set'] != 'new']
     valid_df = data[data['set'] == 'new']
 
-    train_bucket_iter = prepare_bucket(train_df, bucket_size=config.BUCKET_SPLIT, adjustment=False)
-    valid_bucket_iter = prepare_bucket(valid_df, bucket_size=1, adjustment=True)
+    train_bucket_iter = prepare_bucket(train_df, data_transform.train_transform, bucket_size=config.BUCKET_SPLIT, adjustment=False)
+    valid_bucket_iter = prepare_bucket(valid_df, data_transform.valid_transform, bucket_size=1, adjustment=True)
     return train_bucket_iter, valid_bucket_iter
 
 def workflow_train():
@@ -66,7 +66,7 @@ def cv_train_loader(fold=5):
         valid_image = list_indexer(data, valid_index)
 
         loader_tmp1 = prepare_loader(train_image, train, data_transform.train_transform)
-        loader_tmp2 = prepare_loader(valid_image, valid, data_transform.train_transform)
+        loader_tmp2 = prepare_loader(valid_image, valid, data_transform.valid_transform)
 
         yield loader_tmp1, loader_tmp2
 
@@ -125,21 +125,20 @@ def image_reader(path, adjustment=True, img_size=config.IMG_SIZE):
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
     if adjustment:
-        image = data_transform.crop_image_from_gray(image)
-        image = cv2.resize(image, (img_size, img_size))
+        image = data_transform.circle_crop(image)
         image = cv2.addWeighted(image, 4, cv2.GaussianBlur(image, (0,0), 30), -4, 128)
-    else:
-        image = cv2.resize(image, (img_size, img_size))
+
+    image = cv2.resize(image, (img_size, img_size))
 
     image = transforms.ToPILImage()(image)
     return image
 
 
-def prepare_bucket(train_df, bucket_size=config.BUCKET_SPLIT, adjustment=False):
+def prepare_bucket(train_df, transform, bucket_size=config.BUCKET_SPLIT, adjustment=False):
     for df in np.array_split(train_df, bucket_size):
         data = load_train_image(df['path'].values, adjustment=adjustment)
         # df = df.reset_index(drop=True)
-        yield prepare_loader(data, df, data_transform.train_transform)
+        yield prepare_loader(data, df, transform)
 
 
 def prepare_loader(data, labels, transform):

@@ -4,18 +4,21 @@ from torchvision import transforms
 import config
 
 train_transform = transforms.Compose([
-    transforms.RandomAffine((-120, 120)),
-    transforms.RandomHorizontalFlip(),
+    # transforms.Resize(config.IMG_SIZE),
+    transforms.RandomHorizontalFlip(p=0.2),
+    transforms.RandomVerticalFlip(p=0.2),
     transforms.RandomRotation((-120, 120)),
-    transforms.RandomResizedCrop(config.IMG_SIZE, scale=(0.5, 1.0)),
+    # transforms.RandomResizedCrop(config.IMG_SIZE, scale=(0.5, 1.0)),
     transforms.ToTensor(),
-    transforms.Normalize(*config.NORMALIZE)])
+    # transforms.Normalize(*config.NORMALIZE)
+    ])
 
-test_transform = transforms.Compose([
-    transforms.RandomHorizontalFlip(),
-    transforms.RandomRotation((-120, 120)),
+valid_transform = transforms.Compose([
+    # transforms.RandomHorizontalFlip(),
+    # transforms.RandomRotation((-120, 120)),
+    # transforms.Resize(config.IMG_SIZE),
     transforms.ToTensor(),
-    transforms.Normalize(*config.NORMALIZE)
+    # transforms.Normalize(*config.NORMALIZE)
 ])
 
 def crop_image_from_gray(img,tol=7):
@@ -38,3 +41,23 @@ def crop_image_from_gray(img,tol=7):
             img = np.stack([img1,img2,img3],axis=-1)
     #         print(img.shape)
         return img
+    
+def circle_crop(img):   
+    """
+    Create circular crop around image centre    
+    """    
+    
+    img = crop_image_from_gray(img)    
+    
+    height, width, depth = img.shape    
+    
+    x = int(width/2)
+    y = int(height/2)
+    r = np.amin((x,y))
+    
+    circle_img = np.zeros((height, width), np.uint8)
+    cv2.circle(circle_img, (x,y), int(r), 1, thickness=-1)
+    img = cv2.bitwise_and(img, img, mask=circle_img)
+    img = crop_image_from_gray(img)
+    
+    return img 

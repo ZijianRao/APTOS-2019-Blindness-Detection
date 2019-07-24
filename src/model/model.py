@@ -13,6 +13,8 @@ import torch.optim as optim
 from torch.optim import lr_scheduler
 import torchvision.models as models
 from torchvision.models.resnet import  model_urls
+from efficientnet_pytorch import EfficientNet
+
 
 import data_loader
 import config
@@ -32,14 +34,22 @@ class ModelHelper:
         self.most_recent_loss = 0
     
     def setup_model(self):
-        model_template = getattr(models, self.name)
-        model = model_template(pretrained=False)
+        if 'efficientnet' in self.name:
+            model = EfficientNet.from_pretrained(self.name)
+        else:
+            model_template = getattr(models, self.name)
+            model = model_template(pretrained=False)
+
         if self.path is None:
             # load pretrained standard model
-            model_dict = torch.hub.load_state_dict_from_url(model_urls[self.name])
-            model.load_state_dict(model_dict)
-            num_features = model.fc.in_features
-            model.fc = nn.Linear(num_features, 1)
+            if 'efficientnet' not in self.name:
+                model_dict = torch.hub.load_state_dict_from_url(model_urls[self.name])
+                model.load_state_dict(model_dict)
+                num_features = model.fc.in_features
+                model.fc = nn.Linear(num_features, 1)
+            else:
+                num_features = model._fc.in_features
+                model._fc = nn.Linear(num_features, 1)
         else:
             # load trained by self model
             num_features = model.fc.in_features
@@ -86,15 +96,17 @@ class ModelHelper:
             running_loss = 0.0
             tk0 = tqdm(train_loader, total=int(len(train_loader)))
             counter = 0
+            optimizer.zero_grad()   # clear accumulated gradient
             for bi, (inputs, labels) in enumerate(tk0):
                 inputs = inputs.to(device, dtype=torch.float)
                 labels = labels.to(device, dtype=torch.float)
-                optimizer.zero_grad()   # clear accumulated gradient
                 with torch.set_grad_enabled(True):
                     outputs = model(inputs)
                     loss = criterion(outputs, labels)
                     loss.backward()
-                    optimizer.step()
+                    if (bi + 1) % 10 == 0:
+                        optimizer.step()
+                        optimizer.zero_grad()   # clear accumulated gradient
                 running_loss += loss.item() * inputs.size(0)
                 counter += 1
                 tk0.set_postfix(epoch=epoch, loss=(running_loss / (counter * train_loader.batch_size)))

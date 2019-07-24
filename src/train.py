@@ -16,14 +16,14 @@ def seed_everything(seed):
 
 def main():
     seed_everything(42)
-    # t, v = data_loader.workflow_mix()
+    t, v = data_loader.workflow_mix()
 
-    # obj = ModelHelper(name='resnet50')
+    obj = ModelHelper(name='efficientnet-b4')
     # t, v = data_loader.workflow_train()
     # obj = Resnext(path=os.path.join(config.CHECKOUT_PATH, '0.837_resnext50_32x4d_epoch_6'))
-    # obj.train_bucket(t, v)
+    obj.train_bucket(t, v)
     # obj.train(t, v, num_epochs=10)
-    cv_train()
+#     cv_train()
 
 def cv_train():
     for train_loader, test_loader in data_loader.cv_train_loader():
