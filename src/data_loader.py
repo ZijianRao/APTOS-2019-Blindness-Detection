@@ -54,6 +54,7 @@ def cv_train_loader(fold=5):
 
     kf = KFold(n_splits=fold)
     data = load_train_image(df['path'].values, adjustment=True)
+
     # data = np.array(data)
 
     def list_indexer(data, index_array):

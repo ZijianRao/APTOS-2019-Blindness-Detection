@@ -14,6 +14,7 @@ from torch.optim import lr_scheduler
 import torchvision.models as models
 from torchvision.models.resnet import  model_urls
 from efficientnet_pytorch import EfficientNet
+from apex import amp
 
 
 import data_loader
@@ -32,6 +33,8 @@ class ModelHelper:
         self.best_score = 0.75
         self.data_dump = {}
         self.most_recent_loss = 0
+        self.model, self.optimizer = amp.initialize(self.model, self.optimizer, opt_level="O1")
+
     
     def setup_model(self):
         if 'efficientnet' in self.name:
@@ -51,24 +54,34 @@ class ModelHelper:
                 num_features = model._fc.in_features
                 model._fc = nn.Linear(num_features, 1)
         else:
-            # load trained by self model
-            num_features = model.fc.in_features
-            model.fc = nn.Linear(num_features, 1)
+            if 'efficientnet' not in self.name:
+                # load trained by self model
+                num_features = model.fc.in_features
+                model.fc = nn.Linear(num_features, 1)
+            else:
+                num_features = model._fc.in_features
+                model._fc = nn.Linear(num_features, 1)
             model.load_state_dict(torch.load(self.path))
+
 
         model = model.to(device)
         if self.path is not None:
         # only train those layers for trained model
-            plist = [
-                    {'params': model.layer4.parameters(), 'lr': 1e-4, 'weight': 0.001},
-                    {'params': model.fc.parameters(), 'lr': 1e-3}
-                    ]
+            if 'efficientnet' not in self.name:
+                plist = [
+                        {'params': model.layer4.parameters(), 'lr': 1e-4, 'weight': 0.001},
+                        {'params': model.fc.parameters(), 'lr': 1e-3}
+                        ]
+            else:
+                plist = [
+                        {'params': model._fc.parameters(), 'lr': 1e-3}
+                ]
         else:
             plist = model.parameters()
         return model, plist
     
     def prepare_optimizer_scheduler(self):
-        optimizer = optim.Adam(self.plist, lr=0.001)
+        optimizer = optim.Adam(self.plist, lr=1e-3)
         # scheduler = lr_scheduler.StepLR(optimizer, step_size=10)
         scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'max')
         return optimizer, scheduler
@@ -77,8 +90,7 @@ class ModelHelper:
         valid_loader = list(valid_loader_iter)[0]
         for i, train_loader in enumerate(train_loader_iter):
             print(f'bucket {i}')
-            self.train(train_loader, valid_loader, num_epochs=10, prefix=f'bucket_{i}')
-            self.check_out_if_good(valid_loader, force_save=f'_bucket{i}')
+            self.train(train_loader, valid_loader, num_epochs=15, prefix=f'bucket_{i}')
         self.save_log()
     
     def train(self, train_loader, valid_loader, num_epochs=10, prefix=''):
@@ -87,6 +99,7 @@ class ModelHelper:
         model = self.model
         criterion = self.criterion
         valid_score = 0.0
+        dump_valid = []
         for epoch in range(num_epochs):
             print(f'Epoch {epoch}/{num_epochs - 1}', end=' ')
             # update learning rate
@@ -103,8 +116,10 @@ class ModelHelper:
                 with torch.set_grad_enabled(True):
                     outputs = model(inputs)
                     loss = criterion(outputs, labels)
-                    loss.backward()
-                    if (bi + 1) % 10 == 0:
+                    with amp.scale_loss(loss, optimizer) as scaled_loss:
+                        scaled_loss.backward()
+                    # loss.backward()
+                    if (bi + 1) % 5 == 0:
                         optimizer.step()
                         optimizer.zero_grad()   # clear accumulated gradient
                 running_loss += loss.item() * inputs.size(0)
@@ -117,9 +132,16 @@ class ModelHelper:
             epoch_loss = running_loss / len(train_loader)
             print('Training Loss: {:.4f}'.format(epoch_loss))
             valid_score, kappa_score = self.check_out_if_good(valid_loader)
+
+            dump_valid.append(valid_score)
+            if len(dump_valid) > dump_valid.index(min(dump_valid)) + 3:
+                print('Early Stop!')
+                # don't want to diverage too much
+                break
+
             self.data_dump[f'{prefix}_epoch_{epoch}'] = (average_loss, valid_score, kappa_score)
 
-        valid_score, kappa_score = self.check_out_if_good(valid_loader, force_save='final')
+        valid_score, kappa_score = self.check_out_if_good(valid_loader, force_save='final' + prefix)
         return model
     
     def check_out_if_good(self, valid_loader, force_save=''):
