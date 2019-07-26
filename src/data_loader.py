@@ -25,10 +25,17 @@ def workflow_mix():
     data = load_train_description()
     # use old as train
     # use new as valid
-    train_df = data[data['set'] != 'new']
-    valid_df = data[data['set'] == 'new']
+    # train_df = data[data['set'] != 'new']
+    # valid_df = data[data['set'] == 'new']
+    # shuffle again
+    data = data.sample(frac=1).reset_index(drop=True)
+    cutoff = int(len(data) * 0.8)
+    train_df = data.iloc[:cutoff]
+    valid_df = data.iloc[cutoff:]
 
-    train_bucket_iter = prepare_bucket(train_df, data_transform.train_transform, bucket_size=config.BUCKET_SPLIT, adjustment=False)
+
+
+    train_bucket_iter = prepare_bucket(train_df, data_transform.train_transform, bucket_size=config.BUCKET_SPLIT, adjustment=True)
     valid_bucket_iter = prepare_bucket(valid_df, data_transform.valid_transform, bucket_size=1, adjustment=True)
     return train_bucket_iter, valid_bucket_iter
 

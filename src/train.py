@@ -16,11 +16,10 @@ def seed_everything(seed):
 
 def main():
     seed_everything(42)
-#     t, v = data_loader.workflow_mix()
-
-#     obj = ModelHelper(name='efficientnet-b4')
-#     obj.train_bucket(t, v)
-    cv_train()
+    t, v = data_loader.workflow_mix()
+    obj = ModelHelper(name='efficientnet-b4')
+    obj.train_bucket(t, v)
+#     cv_train()
 
 def cv_train():
     for train_loader, test_loader in data_loader.cv_train_loader():

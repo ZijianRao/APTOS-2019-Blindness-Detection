@@ -48,7 +48,7 @@ class ModelHelper:
             if 'efficientnet' not in self.name:
                 model_dict = torch.hub.load_state_dict_from_url(model_urls[self.name])
                 model.load_state_dict(model_dict)
-                num_features = model.fc.in_features
+                num_features = model.fc.out_features
                 model.fc = nn.Linear(num_features, 1)
             else:
                 num_features = model._fc.in_features
@@ -83,7 +83,7 @@ class ModelHelper:
     def prepare_optimizer_scheduler(self):
         optimizer = optim.Adam(self.plist, lr=1e-3)
         # scheduler = lr_scheduler.StepLR(optimizer, step_size=10)
-        scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'max')
+        scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
         return optimizer, scheduler
 
     def train_bucket(self, train_loader_iter, valid_loader_iter):
@@ -99,7 +99,8 @@ class ModelHelper:
         model = self.model
         criterion = self.criterion
         valid_score = 0.0
-        dump_valid = []
+        dump_valid = [1]
+        valid_count = 0
         for epoch in range(num_epochs):
             print(f'Epoch {epoch}/{num_epochs - 1}', end=' ')
             # update learning rate
@@ -119,7 +120,7 @@ class ModelHelper:
                     with amp.scale_loss(loss, optimizer) as scaled_loss:
                         scaled_loss.backward()
                     # loss.backward()
-                    if (bi + 1) % 5 == 0:
+                    if (bi + 1) % 3 == 0:
                         optimizer.step()
                         optimizer.zero_grad()   # clear accumulated gradient
                 running_loss += loss.item() * inputs.size(0)
@@ -131,20 +132,31 @@ class ModelHelper:
             self.most_recent_loss = average_loss
             epoch_loss = running_loss / len(train_loader)
             print('Training Loss: {:.4f}'.format(epoch_loss))
-            valid_score, kappa_score = self.check_out_if_good(valid_loader)
+            valid_score, kappa_score = self.check_out_if_good(valid_loader, ignore_save=True)
 
-            dump_valid.append(valid_score)
-            if len(dump_valid) > dump_valid.index(min(dump_valid)) + 3:
+            if valid_score < dump_valid[-1]:
+                valid_count += 1
+            else:
+                valid_count = 0
+
+            if valid_score < min(dump_valid):
+                print('Saved!')
+                name = f'{kappa_score:.2f}_{valid_score:.3f}_{self.most_recent_loss:.3f}_{self.name}'
+                torch.save(model.state_dict(), os.path.join(config.CHECKOUT_PATH, name))
+
+            if valid_count > 5:
                 print('Early Stop!')
                 # don't want to diverage too much
                 break
 
+            dump_valid.append(valid_score)
+
             self.data_dump[f'{prefix}_epoch_{epoch}'] = (average_loss, valid_score, kappa_score)
 
-        valid_score, kappa_score = self.check_out_if_good(valid_loader, force_save='final' + prefix)
+        valid_score, kappa_score = self.check_out_if_good(valid_loader, ignore_save=False, force_save='final' + prefix)
         return model
     
-    def check_out_if_good(self, valid_loader, force_save=''):
+    def check_out_if_good(self, valid_loader, ignore_save=False, force_save=''):
         model = self.model
         criterion = self.criterion
         model.eval()
@@ -170,7 +182,7 @@ class ModelHelper:
         y_valid = np.concatenate(y_valid)
         val_kappa = cohen_kappa_score(y_valid, y_pred, weights='quadratic')
         print(f'Valid Kappa Loss: {val_kappa:.4f}, MSE Loss: {loss:.4f}')
-        if force_save != '' or val_kappa > self.best_score * 0.95:
+        if not ignore_save and (force_save != '' or val_kappa > self.best_score * 0.95):
             self.best_score = max(val_kappa, self.best_score)
             name = f'{val_kappa:.2f}_{loss:.3f}_{self.most_recent_loss:.3f}_{self.name}' + force_save
             torch.save(model.state_dict(), os.path.join(config.CHECKOUT_PATH, name))
