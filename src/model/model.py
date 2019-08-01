@@ -24,9 +24,10 @@ device = torch.device("cuda:0")
 
 class ModelHelper:
     """ Only for training"""
-    def __init__(self, path=None, name=None):
+    def __init__(self, path=None, name=None, fine_tune=True):
         self.path = path # use path to load trained model
         self.name = name
+        self.fine_tune = fine_tune
         self.criterion = nn.MSELoss()
         self.model, self.plist = self.setup_model()
         self.optimizer, self.scheduler = self.prepare_optimizer_scheduler()
@@ -34,7 +35,11 @@ class ModelHelper:
         self.data_dump = {}
         self.most_recent_loss = 0
         self.model, self.optimizer = amp.initialize(self.model, self.optimizer, opt_level="O1")
-
+    
+    def reset_model(self):
+        """ Reset model calibration set up"""
+        self.optimizer, self.scheduler = self.prepare_optimizer_scheduler()
+        self.model, self.optimizer = amp.initialize(self.model, self.optimizer, opt_level="O1")
     
     def setup_model(self):
         if 'efficientnet' in self.name:
@@ -65,8 +70,7 @@ class ModelHelper:
 
 
         model = model.to(device)
-        if self.path is not None:
-        # only train those layers for trained model
+        if self.fine_tune:
             if 'efficientnet' not in self.name:
                 plist = [
                         {'params': model.layer4.parameters(), 'lr': 1e-4, 'weight': 0.001},
@@ -74,15 +78,16 @@ class ModelHelper:
                         ]
             else:
                 plist = [
-                        {'params': model._fc.parameters(), 'lr': 1e-3}
+                        {'params': model._fc.parameters(), 'lr': 1e-4}
                 ]
         else:
             plist = model.parameters()
+
         return model, plist
     
     def prepare_optimizer_scheduler(self):
         optimizer = optim.Adam(self.plist, lr=1e-3)
-        # scheduler = lr_scheduler.StepLR(optimizer, step_size=10)
+        # scheduler = lr_scheduler.StepLR(optimizer, step_size=5)
         scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
         return optimizer, scheduler
 
@@ -90,10 +95,11 @@ class ModelHelper:
         valid_loader = list(valid_loader_iter)[0]
         for i, train_loader in enumerate(train_loader_iter):
             print(f'bucket {i}')
-            self.train(train_loader, valid_loader, num_epochs=15, prefix=f'bucket_{i}')
+            self.train(train_loader, valid_loader, num_epochs=30, name=f'bucket_{i}')
+            self.reset_model()
         self.save_log()
     
-    def train(self, train_loader, valid_loader, num_epochs=10, prefix=''):
+    def train(self, train_loader, valid_loader, num_epochs=10, name=''):
         scheduler = self.scheduler
         optimizer = self.optimizer
         model = self.model
@@ -132,17 +138,15 @@ class ModelHelper:
             self.most_recent_loss = average_loss
             epoch_loss = running_loss / len(train_loader)
             print('Training Loss: {:.4f}'.format(epoch_loss))
-            valid_score, kappa_score = self.check_out_if_good(valid_loader, ignore_save=True)
+            valid_score, kappa_score = self.valid_model(valid_loader)
 
-            if valid_score < dump_valid[-1]:
+            if valid_score > dump_valid[-1]:
                 valid_count += 1
             else:
                 valid_count = 0
 
             if valid_score < min(dump_valid):
-                print('Saved!')
-                name = f'{kappa_score:.2f}_{valid_score:.3f}_{self.most_recent_loss:.3f}_{self.name}'
-                torch.save(model.state_dict(), os.path.join(config.CHECKOUT_PATH, name))
+                self.check_out_valid(valid_score, kappa_score, name)
 
             if valid_count > 5:
                 print('Early Stop!')
@@ -151,12 +155,11 @@ class ModelHelper:
 
             dump_valid.append(valid_score)
 
-            self.data_dump[f'{prefix}_epoch_{epoch}'] = (average_loss, valid_score, kappa_score)
+            self.data_dump[f'{name}_epoch_{epoch}'] = (average_loss, valid_score, kappa_score)
 
-        valid_score, kappa_score = self.check_out_if_good(valid_loader, ignore_save=False, force_save='final' + prefix)
         return model
     
-    def check_out_if_good(self, valid_loader, ignore_save=False, force_save=''):
+    def valid_model(self, valid_loader):
         model = self.model
         criterion = self.criterion
         model.eval()
@@ -182,11 +185,6 @@ class ModelHelper:
         y_valid = np.concatenate(y_valid)
         val_kappa = cohen_kappa_score(y_valid, y_pred, weights='quadratic')
         print(f'Valid Kappa Loss: {val_kappa:.4f}, MSE Loss: {loss:.4f}')
-        if not ignore_save and (force_save != '' or val_kappa > self.best_score * 0.95):
-            self.best_score = max(val_kappa, self.best_score)
-            name = f'{val_kappa:.2f}_{loss:.3f}_{self.most_recent_loss:.3f}_{self.name}' + force_save
-            torch.save(model.state_dict(), os.path.join(config.CHECKOUT_PATH, name))
-            print(f'Save checkpoint!')
         return loss, val_kappa
     
     def save_log(self):
@@ -195,6 +193,10 @@ class ModelHelper:
         df.to_csv(os.path.join(config.LOG_PATH, name))
         print(f'Log {name} saved!')
 
+    def check_out_valid(self, valid_score, valid_kappa, postfix=''):
+        name = f'{valid_kappa:.2f}_{valid_score:.3f}_{self.most_recent_loss:.3f}_{self.name}_{postfix}'
+        torch.save(self.model.state_dict(), os.path.join(config.CHECKOUT_PATH, name))
+        print(f'Save checkpoint!')
 
 def score_to_level(output):
     coef = config.CUTOFF_COEF

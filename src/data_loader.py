@@ -27,16 +27,22 @@ def workflow_mix():
     # use new as valid
     # train_df = data[data['set'] != 'new']
     # valid_df = data[data['set'] == 'new']
+
+    data = data[data['set'] != 'new']
     # shuffle again
     data = data.sample(frac=1).reset_index(drop=True)
     cutoff = int(len(data) * 0.8)
-    train_df = data.iloc[:cutoff]
-    valid_df = data.iloc[cutoff:]
+    train_df = data.iloc[:cutoff].reset_index(drop=True)
+    valid_df = data.iloc[cutoff:].reset_index(drop=True)
 
 
+    train_bucket_iter = prepare_bucket(train_df, data_transform.train_transform, bucket_size=config.BUCKET_SPLIT, adjustment=False)
 
-    train_bucket_iter = prepare_bucket(train_df, data_transform.train_transform, bucket_size=config.BUCKET_SPLIT, adjustment=True)
-    valid_bucket_iter = prepare_bucket(valid_df, data_transform.valid_transform, bucket_size=1, adjustment=True)
+    # new data only
+    # path = config.LOCAL_CLEAN_TRAIN_IMAGE_ARRAY_PATH.format(config.IMG_SIZE)
+    # data = pickle.load(open(path, 'rb'))
+    # valid_bucket_iter = prepare_bucket(valid_df, data_transform.valid_transform, bucket_size=1, adjustment=True, data=data)
+    valid_bucket_iter = prepare_bucket(valid_df, data_transform.valid_transform, bucket_size=1, adjustment=False)
     return train_bucket_iter, valid_bucket_iter
 
 def workflow_train():
@@ -53,14 +59,20 @@ def workflow_train():
     print(train_loader)
     return train_loader, valid_loader 
 
-def cv_train_loader(fold=5):
+def cv_train_loader(cacheReset=False, fold=5):
     data = load_train_description()
     # use old as train
     # use new as valid
     df = data[data['set'] == 'new']
 
     kf = KFold(n_splits=fold)
-    data = load_train_image(df['path'].values, adjustment=True)
+    # cache
+    path = config.LOCAL_CLEAN_TRAIN_IMAGE_ARRAY_PATH.format(config.IMG_SIZE)
+    if not cacheReset and os.path.exists(path):
+        data = pickle.load(open(path, 'rb'))
+    else:
+        data = load_train_image(df['path'].values, adjustment=True)
+        pickle.dump(data, open(path, 'wb'))
 
     # data = np.array(data)
 
@@ -142,9 +154,10 @@ def image_reader(path, adjustment=True, img_size=config.IMG_SIZE):
     return image
 
 
-def prepare_bucket(train_df, transform, bucket_size=config.BUCKET_SPLIT, adjustment=False):
+def prepare_bucket(train_df, transform, bucket_size=config.BUCKET_SPLIT, adjustment=False, data=None):
     for df in np.array_split(train_df, bucket_size):
-        data = load_train_image(df['path'].values, adjustment=adjustment)
+        if data is None:
+            data = load_train_image(df['path'].values, adjustment=adjustment)
         # df = df.reset_index(drop=True)
         yield prepare_loader(data, df, transform)
 
@@ -204,4 +217,5 @@ if __name__ == '__main__':
     # df = train_dataset.data
     # print(prepare_labels(df['diagnosis']))
     # image_reader('../data/previous/resized_train_15/10_left.jpg')
-    workflow_train()
+    list(cv_train_loader(cacheReset=True))
+    print('done')

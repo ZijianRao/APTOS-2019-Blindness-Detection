@@ -8,6 +8,7 @@ train_transform = transforms.Compose([
     transforms.RandomHorizontalFlip(p=0.2),
     transforms.RandomVerticalFlip(p=0.2),
     transforms.RandomRotation((-120, 120)),
+    transforms.CenterCrop(config.IMG_SIZE),
     # transforms.RandomResizedCrop(config.IMG_SIZE, scale=(0.5, 1.0)),
     transforms.ToTensor(),
     # transforms.Normalize(*config.NORMALIZE)
@@ -48,8 +49,12 @@ def circle_crop(img):
     """    
     
     img = crop_image_from_gray(img)    
-    
-    height, width, depth = img.shape    
+
+    height, width, depth = img.shape
+    largest_side = np.max((height, width))
+    img = cv2.resize(img, (largest_side, largest_side))
+
+    height, width, depth = img.shape
     
     x = int(width/2)
     y = int(height/2)

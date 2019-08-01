@@ -17,15 +17,19 @@ def seed_everything(seed):
 def main():
     seed_everything(42)
     t, v = data_loader.workflow_mix()
-    obj = ModelHelper(name='efficientnet-b4')
+    obj = ModelHelper(name='efficientnet-b4', fine_tune=False)
     obj.train_bucket(t, v)
 #     cv_train()
 
 def cv_train():
-    for train_loader, test_loader in data_loader.cv_train_loader():
-        obj = ModelHelper(name='efficientnet-b4', path=os.path.join(config.CHECKOUT_PATH, '0.79_0.623_0.495_efficientnet-b4'))
-        obj.best_score = 0.85
-        obj.train(train_loader, test_loader)
+    for i, (train_loader, test_loader) in enumerate(data_loader.cv_train_loader()):
+        # obj = ModelHelper(name='efficientnet-b4', 
+        #                   path=os.path.join(config.CHECKOUT_PATH, '0.74_0.387_0.394_efficientnet-b4finalbucket_14'),
+        #                   fine_tune=True)
+                          
+        # obj.best_score = 0.85
+        # obj.train(train_loader, test_loader, name=f'cv_{i}')
+        pass
 
 if __name__ == '__main__':
     main()
