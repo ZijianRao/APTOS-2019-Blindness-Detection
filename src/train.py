@@ -17,8 +17,8 @@ def seed_everything(seed):
 def main():
     seed_everything(42)
     t, v = data_loader.workflow_mix()
-    obj = ModelHelper(name='efficientnet-b4', fine_tune=False)
-    obj.train_bucket(t, v)
+    path = os.path.join(config.CHECKOUT_PATH, '0.78_0.325_0.252_efficientnet-b4_bucket_0')
+    ModelHelper.train_bucket('efficientnet-b4', t, v, path, fine_tune=False)
 #     cv_train()
 
 def cv_train():

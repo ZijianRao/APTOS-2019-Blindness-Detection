@@ -24,22 +24,19 @@ device = torch.device("cuda:0")
 
 class ModelHelper:
     """ Only for training"""
-    def __init__(self, path=None, name=None, fine_tune=True):
+    def __init__(self, path=None, name=None, fine_tune=True, lr=1e-3):
         self.path = path # use path to load trained model
         self.name = name
         self.fine_tune = fine_tune
         self.criterion = nn.MSELoss()
         self.model, self.plist = self.setup_model()
-        self.optimizer, self.scheduler = self.prepare_optimizer_scheduler()
+        self.optimizer, self.scheduler = self.prepare_optimizer_scheduler(lr)
         self.best_score = 0.75
         self.data_dump = {}
         self.most_recent_loss = 0
         self.model, self.optimizer = amp.initialize(self.model, self.optimizer, opt_level="O1")
+        self.last_name = None
     
-    def reset_model(self):
-        """ Reset model calibration set up"""
-        self.optimizer, self.scheduler = self.prepare_optimizer_scheduler()
-        self.model, self.optimizer = amp.initialize(self.model, self.optimizer, opt_level="O1")
     
     def setup_model(self):
         if 'efficientnet' in self.name:
@@ -85,19 +82,23 @@ class ModelHelper:
 
         return model, plist
     
-    def prepare_optimizer_scheduler(self):
-        optimizer = optim.Adam(self.plist, lr=1e-3)
+    def prepare_optimizer_scheduler(self, lr):
+        optimizer = optim.Adam(self.plist, lr=lr)
         # scheduler = lr_scheduler.StepLR(optimizer, step_size=5)
         scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
         return optimizer, scheduler
 
-    def train_bucket(self, train_loader_iter, valid_loader_iter):
+    @classmethod
+    def train_bucket(cls, name, train_loader_iter, valid_loader_iter, path=None, fine_tune=False):
         valid_loader = list(valid_loader_iter)[0]
+        lr = 1e-3
         for i, train_loader in enumerate(train_loader_iter):
             print(f'bucket {i}')
-            self.train(train_loader, valid_loader, num_epochs=30, name=f'bucket_{i}')
-            self.reset_model()
-        self.save_log()
+            obj = cls(path, name, fine_tune=fine_tune, lr=lr)
+            obj.train(train_loader, valid_loader, num_epochs=30, name=f'bucket_{i}')
+            obj.save_log()
+            path = obj.last_name
+            lr /= 2
     
     def train(self, train_loader, valid_loader, num_epochs=10, name=''):
         scheduler = self.scheduler
@@ -196,6 +197,7 @@ class ModelHelper:
     def check_out_valid(self, valid_score, valid_kappa, postfix=''):
         name = f'{valid_kappa:.2f}_{valid_score:.3f}_{self.most_recent_loss:.3f}_{self.name}_{postfix}'
         torch.save(self.model.state_dict(), os.path.join(config.CHECKOUT_PATH, name))
+        self.last_name = name
         print(f'Save checkpoint!')
 
 def score_to_level(output):
