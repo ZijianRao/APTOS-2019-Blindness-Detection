@@ -1,6 +1,7 @@
 import data_loader
 import config
 from model.model import ModelHelper 
+from model.efficient_train import EfficientNetModel
 import random
 import os
 import numpy as np
@@ -16,19 +17,25 @@ def seed_everything(seed):
 
 def main():
     seed_everything(42)
-    t, v = data_loader.workflow_mix()
-    path = os.path.join(config.CHECKOUT_PATH, '0.78_0.325_0.252_efficientnet-b4_bucket_0')
-    ModelHelper.train_bucket('efficientnet-b4', t, v, path, fine_tune=False)
+    train_old()
 #     cv_train()
+
+def train_old():
+    t, v = data_loader.workflow_mix()
+    t = list(t)[0]
+    v = list(v)[0]
+    model = EfficientNetModel(name='efficientnet-b4')
+    model.train(t, v, accum_gradient=3, n_freeze=2, num_epochs=15, name='old')
+
 
 def cv_train():
     for i, (train_loader, test_loader) in enumerate(data_loader.cv_train_loader()):
-        # obj = ModelHelper(name='efficientnet-b4', 
-        #                   path=os.path.join(config.CHECKOUT_PATH, '0.74_0.387_0.394_efficientnet-b4finalbucket_14'),
-        #                   fine_tune=True)
+        obj = ModelHelper(name='efficientnet-b4', 
+                          path=os.path.join(config.CHECKOUT_PATH, '0.79_0.318_0.212_efficientnet-b4_bucket_0'),
+                          fine_tune=True)
                           
-        # obj.best_score = 0.85
-        # obj.train(train_loader, test_loader, name=f'cv_{i}')
+        obj.best_score = 0.85
+        obj.train(train_loader, test_loader, name=f'cv_{i}')
         pass
 
 if __name__ == '__main__':

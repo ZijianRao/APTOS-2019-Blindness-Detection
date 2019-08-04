@@ -28,7 +28,7 @@ def workflow_mix():
     # train_df = data[data['set'] != 'new']
     # valid_df = data[data['set'] == 'new']
 
-    data = data[data['set'] != 'new']
+    data = data[data['set'] != 'new'][:200]
     # shuffle again
     data = data.sample(frac=1).reset_index(drop=True)
     cutoff = int(len(data) * 0.8)
@@ -56,7 +56,6 @@ def workflow_train():
 
     train_loader = list(prepare_bucket(train, bucket_size=1, adjustment=True))[0]
     valid_loader = list(prepare_bucket(valid, bucket_size=1, adjustment=True))[0]
-    print(train_loader)
     return train_loader, valid_loader 
 
 def cv_train_loader(cacheReset=False, fold=5):
@@ -72,6 +71,8 @@ def cv_train_loader(cacheReset=False, fold=5):
         data = pickle.load(open(path, 'rb'))
     else:
         data = load_train_image(df['path'].values, adjustment=True)
+        for i in range(10):
+            data[i].save(f'../data/processed_img/{i}.bmp')
         pickle.dump(data, open(path, 'wb'))
 
     # data = np.array(data)
@@ -133,7 +134,7 @@ def load_train_image(path_group, img_size=config.IMG_SIZE, adjustment=True):
         img_size ([type], optional): [description]. Defaults to config.IMG_SIZE.
         adjustment (bool, optional): [description]. Defaults to True.
     """
-    helper = functools.partial(image_reader, adjustment=adjustment, img_size=img_size)
+    helper = functools.partial(image_reader, adjustment=True, img_size=img_size)
     x_train = Parallel(n_jobs=psutil.cpu_count(), verbose=1)(
         delayed(helper)(fp) for fp in path_group)
     return x_train
@@ -144,18 +145,30 @@ def image_reader(path, adjustment=True, img_size=config.IMG_SIZE):
     image = cv2.imread(path)
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-    if adjustment:
-        image = data_transform.circle_crop(image)
-        image = cv2.addWeighted(image, 4, cv2.GaussianBlur(image, (0,0), 30), -4, 128)
 
+    image = data_transform.crop_image_from_gray(image)
+
+    if adjustment:
+        # only apply circle crop
+        image = data_transform.circle_crop(image)
+        
+    image = cv2.addWeighted(image, 4, cv2.GaussianBlur(image, (0,0), 10), -4, 128)
     image = cv2.resize(image, (img_size, img_size))
 
     image = transforms.ToPILImage()(image)
+
     return image
 
 
 def prepare_bucket(train_df, transform, bucket_size=config.BUCKET_SPLIT, adjustment=False, data=None):
+    skip = True
     for df in np.array_split(train_df, bucket_size):
+        if bucket_size > 1:
+            if skip:
+                print('skip first part!')
+                skip = False
+                continue
+
         if data is None:
             data = load_train_image(df['path'].values, adjustment=adjustment)
         # df = df.reset_index(drop=True)
