@@ -28,7 +28,7 @@ def workflow_mix():
     # train_df = data[data['set'] != 'new']
     # valid_df = data[data['set'] == 'new']
 
-    data = data[data['set'] != 'new'][:200]
+    data = data[data['set'] != 'new']
     # shuffle again
     data = data.sample(frac=1).reset_index(drop=True)
     cutoff = int(len(data) * 0.8)
@@ -36,14 +36,14 @@ def workflow_mix():
     valid_df = data.iloc[cutoff:].reset_index(drop=True)
 
 
-    train_bucket_iter = prepare_bucket(train_df, data_transform.train_transform, bucket_size=config.BUCKET_SPLIT, adjustment=False)
+    train_bucket = prepare_loader_full(train_df, data_transform.train_transform, adjustment=False)
 
     # new data only
     # path = config.LOCAL_CLEAN_TRAIN_IMAGE_ARRAY_PATH.format(config.IMG_SIZE)
     # data = pickle.load(open(path, 'rb'))
     # valid_bucket_iter = prepare_bucket(valid_df, data_transform.valid_transform, bucket_size=1, adjustment=True, data=data)
-    valid_bucket_iter = prepare_bucket(valid_df, data_transform.valid_transform, bucket_size=1, adjustment=False)
-    return train_bucket_iter, valid_bucket_iter
+    valid_bucket = prepare_loader_full(valid_df, data_transform.valid_transform, adjustment=False)
+    return train_bucket, valid_bucket
 
 def workflow_train():
     data = load_train_description()
@@ -126,6 +126,12 @@ def path_maker(row):
     return template.format(id_code)
 
 
+def prepare_loader_full(train_df, transform, adjustment=False, data=None):
+    if data is None:
+        data = load_train_image(train_df['path'].values, adjustment=adjustment)
+    return prepare_loader(data, train_df, transform)
+
+
 def load_train_image(path_group, img_size=config.IMG_SIZE, adjustment=True):
     """ Load train images based on input path info
     
@@ -158,21 +164,6 @@ def image_reader(path, adjustment=True, img_size=config.IMG_SIZE):
     image = transforms.ToPILImage()(image)
 
     return image
-
-
-def prepare_bucket(train_df, transform, bucket_size=config.BUCKET_SPLIT, adjustment=False, data=None):
-    skip = True
-    for df in np.array_split(train_df, bucket_size):
-        if bucket_size > 1:
-            if skip:
-                print('skip first part!')
-                skip = False
-                continue
-
-        if data is None:
-            data = load_train_image(df['path'].values, adjustment=adjustment)
-        # df = df.reset_index(drop=True)
-        yield prepare_loader(data, df, transform)
 
 
 def prepare_loader(data, labels, transform):

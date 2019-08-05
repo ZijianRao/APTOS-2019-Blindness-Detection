@@ -12,7 +12,8 @@ train_transform = transforms.Compose([
     transforms.RandomHorizontalFlip(p=0.2),
     transforms.RandomVerticalFlip(p=0.2),
     transforms.RandomRotation((-120, 120)),
-    transforms.CenterCrop(config.IMG_SIZE),
+    transforms.ColorJitter(brightness=0.5, contrast=0.5, saturation=0, hue=0),
+    # transforms.CenterCrop(config.IMG_SIZE),
     # transforms.RandomResizedCrop(config.IMG_SIZE, scale=(0.5, 1.0)),
     transforms.ToTensor(),
     # transforms.Normalize(*config.NORMALIZE)

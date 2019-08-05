@@ -22,10 +22,8 @@ def main():
 
 def train_old():
     t, v = data_loader.workflow_mix()
-    t = list(t)[0]
-    v = list(v)[0]
-    model = EfficientNetModel(name='efficientnet-b4')
-    model.train(t, v, accum_gradient=3, n_freeze=2, num_epochs=15, name='old')
+    model = EfficientNetModel(name='efficientnet-b4', fine_tune=False)
+    model.train(t, v, accum_gradient=3, n_freeze=5, num_epochs=15, name='old_all')
 
 
 def cv_train():

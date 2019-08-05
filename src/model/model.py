@@ -46,15 +46,15 @@ class ModelHelper:
         if self.path is None:
             model_dict = torch.hub.load_state_dict_from_url(model_urls[self.name])
             model.load_state_dict(model_dict)
-            for param in model.parameters():
-                param.requires_grad = False
-            num_features = model.fc.out_features
-            model.fc = nn.Linear(num_features, 1)
         else:
             num_features = model._fc.in_features
-            model._fc = nn.Linear(num_features, 1)
+            model.fc = nn.Linear(num_features, 1)
             model.load_state_dict(torch.load(self.path))
 
+        for param in model.parameters():
+            param.requires_grad = False
+        num_features = model.fc.out_features
+        model.fc = nn.Linear(num_features, 1)
 
         model = model.to(device)
         if self.fine_tune:
@@ -73,6 +73,7 @@ class ModelHelper:
         scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
         return optimizer, scheduler
 
+
     def train(self, train_loader, valid_loader, accum_gradient=3, n_freeze=3, num_epochs=10, name=''):
         scheduler = self.scheduler
         optimizer = self.optimizer
@@ -81,11 +82,14 @@ class ModelHelper:
         valid_score = 0.0
         dump_valid = [1]
         valid_count = 0
-        for epoch in range(num_epochs):
-            print(f'Epoch {epoch}/{num_epochs - 1}', end=' ')
+
+        for epoch in range(1, num_epochs + 1):
+            print(f'Epoch {epoch}/{num_epochs}')
             # Freeze the initial training to focus purely on linear part
-            if epoch == n_freeze:
+            if (epoch == n_freeze) and not self.fine_tune:
+                print('------------')
                 print('Begin to train all parameters')
+                print('------------')
                 for param in model.parameters():
                     param.requires_grad = True
             # update learning rate
@@ -167,6 +171,7 @@ class ModelHelper:
     
     def save_log(self):
         df = pd.DataFrame(self.data_dump).T
+        df.columns = ['Train_Loss', 'Valid_Loss', 'Valid_Kappa_Score']
         name = f'{datetime.datetime.now()}_{self.name}.csv'
         df.to_csv(os.path.join(config.LOG_PATH, name))
         print(f'Log {name} saved!')

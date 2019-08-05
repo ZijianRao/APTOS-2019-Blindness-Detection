@@ -17,13 +17,14 @@ class EfficientNetModel(ModelHelper):
             # load pretrained standard model
             # freeze all parameters first
             num_features = model._fc.in_features
-            for param in model.parameters():
-                param.requires_grad = False
-            model._fc = nn.Linear(num_features, 1)
         else:
             num_features = model._fc.in_features
             model._fc = nn.Linear(num_features, 1)
             model.load_state_dict(torch.load(self.path))
+
+        for param in model.parameters():
+            param.requires_grad = False
+        model._fc = nn.Linear(num_features, 1)
 
         model = model.to(device)
         if self.fine_tune:
