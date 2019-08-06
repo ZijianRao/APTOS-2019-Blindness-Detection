@@ -14,7 +14,7 @@ train_transform = transforms.Compose([
     transforms.RandomRotation((-120, 120)),
     transforms.ColorJitter(brightness=0.5, contrast=0.5, saturation=0, hue=0),
     # transforms.CenterCrop(config.IMG_SIZE),
-    # transforms.RandomResizedCrop(config.IMG_SIZE, scale=(0.5, 1.0)),
+    # transforms.RandomResizedCrop(config.IMG_SIZE, scale=(0.7, 1.0)),
     transforms.ToTensor(),
     # transforms.Normalize(*config.NORMALIZE)
     ])
@@ -45,6 +45,11 @@ def crop_image_from_gray(img,tol=7):
             img3=img[:,:,2][np.ix_(mask.any(1),mask.any(0))]
             img = np.stack([img1,img2,img3],axis=-1)
         return img
+
+def random_zoom_in(img, zoom_lower_bound=0.7):
+    pass
+
+
     
 def circle_crop(img, sigmaX=10):   
     """

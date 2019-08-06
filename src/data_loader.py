@@ -70,7 +70,7 @@ def cv_train_loader(cacheReset=False, fold=5):
     if not cacheReset and os.path.exists(path):
         data = pickle.load(open(path, 'rb'))
     else:
-        data = load_train_image(df['path'].values, adjustment=True)
+        data = load_train_image(df['path'].values, adjustment=False)
         for i in range(10):
             data[i].save(f'../data/processed_img/{i}.bmp')
         pickle.dump(data, open(path, 'wb'))
