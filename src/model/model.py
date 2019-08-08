@@ -70,7 +70,7 @@ class ModelHelper:
     def prepare_optimizer_scheduler(self):
         optimizer = optim.Adam(self.plist, lr=self.lr)
         # scheduler = lr_scheduler.StepLR(optimizer, step_size=5)
-        scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
+        scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=3)
         return optimizer, scheduler
 
 

@@ -23,17 +23,17 @@ def main():
 def train_old():
     model = EfficientNetModel(name='efficientnet-b4', fine_tune=False)
     t, v = data_loader.workflow_mix()
-    model.train(t, v, accum_gradient=3, n_freeze=5, num_epochs=20, name='old_all')
+    model.train(t, v, accum_gradient=3, n_freeze=5, num_epochs=30, name='old_all')
 
 
 def cv_train():
     for i, (train_loader, test_loader) in enumerate(data_loader.cv_train_loader(cacheReset=False)):
         obj = EfficientNetModel(name='efficientnet-b4', 
-                          path=os.path.join(config.CHECKOUT_PATH, '0.81_0.293_0.274_efficientnet-b4_old_all'),
+                          path=os.path.join(config.CHECKOUT_PATH, '0.76_0.352_0.301_efficientnet-b4_old_all'),
                           fine_tune=False)
                           
         obj.best_score = 0.85
-        obj.train(train_loader, test_loader, n_freeze=3, num_epochs=10, name=f'cv_{i}')
+        obj.train(train_loader, test_loader, accum_gradient=3, n_freeze=3, num_epochs=15, name=f'cv_{i}')
         pass
 
 if __name__ == '__main__':

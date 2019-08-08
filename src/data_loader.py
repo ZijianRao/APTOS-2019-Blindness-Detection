@@ -45,18 +45,6 @@ def workflow_mix():
     valid_bucket = prepare_loader_full(valid_df, data_transform.valid_transform, adjustment=False)
     return train_bucket, valid_bucket
 
-def workflow_train():
-    data = load_train_description()
-    # use old as train
-    # use new as valid
-    train_df = data[data['set'] == 'new']
-    train_df = train_df.sample(frac=1).reset_index(drop=True)
-    train = train_df.iloc[:2900]
-    valid = train_df.iloc[2900:]
-
-    train_loader = list(prepare_bucket(train, bucket_size=1, adjustment=True))[0]
-    valid_loader = list(prepare_bucket(valid, bucket_size=1, adjustment=True))[0]
-    return train_loader, valid_loader 
 
 def cv_train_loader(cacheReset=False, fold=5):
     data = load_train_description()
@@ -151,15 +139,13 @@ def image_reader(path, adjustment=True, img_size=config.IMG_SIZE):
     image = cv2.imread(path)
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-
     image = data_transform.crop_image_from_gray(image)
-
     if adjustment:
         # only apply circle crop
         image = data_transform.circle_crop(image)
         
-    image = cv2.addWeighted(image, 4, cv2.GaussianBlur(image, (0,0), 10), -4, 128)
     image = cv2.resize(image, (img_size, img_size))
+    image = cv2.addWeighted(image, 4, cv2.GaussianBlur(image, (0, 0), 10), -4, 128)
 
     image = transforms.ToPILImage()(image)
 
