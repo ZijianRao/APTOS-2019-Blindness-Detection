@@ -47,19 +47,19 @@ class ModelHelper:
             model_dict = torch.hub.load_state_dict_from_url(model_urls[self.name])
             model.load_state_dict(model_dict)
         else:
-            num_features = model._fc.in_features
+            num_features = model.fc.in_features
             model.fc = nn.Linear(num_features, 1)
             model.load_state_dict(torch.load(self.path))
 
         for param in model.parameters():
             param.requires_grad = False
-        num_features = model.fc.out_features
+        num_features = model.fc.in_features
         model.fc = nn.Linear(num_features, 1)
 
         model = model.to(device)
         if self.fine_tune:
                 plist = [
-                        {'params': model.layer4.parameters(), 'lr': self.lr, 'weight': 0.001},
+                        # {'params': model.layer4.parameters(), 'lr': self.lr, 'weight': 0.001},
                         {'params': model.fc.parameters(), 'lr': self.lr}
                         ]
         else:
@@ -70,17 +70,16 @@ class ModelHelper:
     def prepare_optimizer_scheduler(self):
         optimizer = optim.Adam(self.plist, lr=self.lr)
         # scheduler = lr_scheduler.StepLR(optimizer, step_size=5)
-        scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=3)
+        scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.1, patience=3)
         return optimizer, scheduler
 
 
-    def train(self, train_loader, valid_loader, accum_gradient=3, n_freeze=3, num_epochs=10, name=''):
+    def train(self, train_loader, valid_loader, accum_gradient=2, n_freeze=3, num_epochs=10, name=''):
         scheduler = self.scheduler
         optimizer = self.optimizer
         model = self.model
         criterion = self.criterion
-        valid_score = 0.0
-        dump_valid = [1]
+        dump_kappa = [0]
         valid_count = 0
 
         for epoch in range(1, num_epochs + 1):
@@ -92,8 +91,6 @@ class ModelHelper:
                 print('------------')
                 for param in model.parameters():
                     param.requires_grad = True
-            # update learning rate
-            scheduler.step(valid_score)
             # set into train mode, not eval mode. May impact: batchnorm and dropout
             model.train()
             running_loss = 0.0
@@ -121,13 +118,13 @@ class ModelHelper:
             print('Training Loss: {:.4f}'.format(epoch_loss))
             valid_score, kappa_score = self.valid_model(valid_loader)
 
-            if valid_score > dump_valid[-1]:
+            if kappa_score < dump_kappa[-1]:
                 valid_count += 1
                 print(f'Early stop {valid_count}/5')
             else:
                 valid_count = 0
 
-            if valid_score < min(dump_valid):
+            if kappa_score < min(dump_kappa):
                 self.check_out_valid(valid_score, kappa_score, name)
 
             if valid_count > 5:
@@ -135,9 +132,11 @@ class ModelHelper:
                 # don't want to diverage too much
                 break
 
-            dump_valid.append(valid_score)
+            dump_kappa.append(kappa_score)
 
             self.data_dump[f'{name}_epoch_{epoch}'] = (average_loss, valid_score, kappa_score)
+            # update learning rate
+            scheduler.step(kappa_score)
 
         return model
     

@@ -6,9 +6,9 @@ import psutil
 import functools
 from tqdm import tqdm
 from PIL import Image
+import joblib
 
-from sklearn.model_selection import train_test_split
-from sklearn.model_selection import KFold
+from sklearn.model_selection import train_test_split, StratifiedShuffleSplit, KFold
 
 import cv2
 import torch
@@ -23,27 +23,25 @@ import config
 
 def workflow_mix():
     data = load_train_description()
-    # use old as train
-    # use new as valid
-    # train_df = data[data['set'] != 'new']
-    # valid_df = data[data['set'] == 'new']
-
     data = data[data['set'] != 'new']
-    # shuffle again
-    data = data.sample(frac=1).reset_index(drop=True)
-    cutoff = int(len(data) * 0.8)
-    train_df = data.iloc[:cutoff].reset_index(drop=True)
-    valid_df = data.iloc[cutoff:].reset_index(drop=True)
+    train_df, valid_df = generate_split(data, 0.25)
+    train_data = load_from_cache('train_old', train_df)
 
+    valid_data = load_from_cache('valid_old', valid_df)
+    train_bucket = prepare_loader(train_data, train_df, data_transform.train_transform)
+    valid_bucket = prepare_loader(valid_data, valid_df, data_transform.valid_transform)
 
-    train_bucket = prepare_loader_full(train_df, data_transform.train_transform, adjustment=False)
-
-    # new data only
-    # path = config.LOCAL_CLEAN_TRAIN_IMAGE_ARRAY_PATH.format(config.IMG_SIZE)
-    # data = pickle.load(open(path, 'rb'))
-    # valid_bucket_iter = prepare_bucket(valid_df, data_transform.valid_transform, bucket_size=1, adjustment=True, data=data)
-    valid_bucket = prepare_loader_full(valid_df, data_transform.valid_transform, adjustment=False)
     return train_bucket, valid_bucket
+
+
+def generate_split(df, cutoff=0.2):
+    sss = StratifiedShuffleSplit(n_splits=1, test_size=cutoff, random_state=42)
+    X = df.index.values
+    y = df['diagnosis'].values
+    train_index, valid_index = next(sss.split(X, y))
+    train_df = df.iloc[train_index].reset_index(drop=True)
+    valid_df = df.iloc[valid_index].reset_index(drop=True)
+    return train_df, valid_df
 
 
 def cv_train_loader(cacheReset=False, fold=5):
@@ -53,17 +51,8 @@ def cv_train_loader(cacheReset=False, fold=5):
     df = data[data['set'] == 'new']
 
     kf = KFold(n_splits=fold)
-    # cache
-    path = config.LOCAL_CLEAN_TRAIN_IMAGE_ARRAY_PATH.format(config.IMG_SIZE)
-    if not cacheReset and os.path.exists(path):
-        data = pickle.load(open(path, 'rb'))
-    else:
-        data = load_train_image(df['path'].values, adjustment=False)
-        for i in range(10):
-            data[i].save(f'../data/processed_img/{i}.bmp')
-        pickle.dump(data, open(path, 'wb'))
-
-    # data = np.array(data)
+    
+    data = load_from_cache('train_new', df)
 
     def list_indexer(data, index_array):
         return [data[i] for i in index_array]
@@ -78,7 +67,6 @@ def cv_train_loader(cacheReset=False, fold=5):
         loader_tmp2 = prepare_loader(valid_image, valid, data_transform.valid_transform)
 
         yield loader_tmp1, loader_tmp2
-
 
 
 def load_train_description():
@@ -114,20 +102,8 @@ def path_maker(row):
     return template.format(id_code)
 
 
-def prepare_loader_full(train_df, transform, adjustment=False, data=None):
-    if data is None:
-        data = load_train_image(train_df['path'].values, adjustment=adjustment)
-    return prepare_loader(data, train_df, transform)
-
-
 def load_train_image(path_group, img_size=config.IMG_SIZE, adjustment=True):
-    """ Load train images based on input path info
-    
-    Args:
-        path_group ([type]): [description]
-        img_size ([type], optional): [description]. Defaults to config.IMG_SIZE.
-        adjustment (bool, optional): [description]. Defaults to True.
-    """
+    """ Load train images based on input path info """
     helper = functools.partial(image_reader, adjustment=True, img_size=img_size)
     x_train = Parallel(n_jobs=psutil.cpu_count(), verbose=1)(
         delayed(helper)(fp) for fp in path_group)
@@ -135,7 +111,7 @@ def load_train_image(path_group, img_size=config.IMG_SIZE, adjustment=True):
 
 
 def image_reader(path, adjustment=True, img_size=config.IMG_SIZE):
-    """ Read image resize it and return as PIL image"""
+    """ Read image resize it and return as numpy array"""
     image = cv2.imread(path)
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
@@ -147,14 +123,15 @@ def image_reader(path, adjustment=True, img_size=config.IMG_SIZE):
     image = cv2.resize(image, (img_size, img_size))
     image = cv2.addWeighted(image, 4, cv2.GaussianBlur(image, (0, 0), 10), -4, 128)
 
-    image = transforms.ToPILImage()(image)
+    image = image.astype(np.uint8)
+    # image = transforms.ToPILImage()(image)
 
     return image
 
 
 def prepare_loader(data, labels, transform):
     dataset = RetinopathyDataset(labels, data, transform)
-    data_loader = torch.utils.data.DataLoader(dataset, batch_size=config.BATCH_SIZE, num_workers=0, shuffle=True)
+    data_loader = torch.utils.data.DataLoader(dataset, batch_size=config.BATCH_SIZE, num_workers=config.NUM_WORKERS, shuffle=True)
     return data_loader
 
 
@@ -170,42 +147,41 @@ class RetinopathyDataset(Dataset):
         return len(self.data)
 
     def __getitem__(self, idx):
-        image = self.image_group[idx]
+        image = self.image_group[idx, :, :, :]
         label = self.data['diagnosis'].values[idx]
         label = np.expand_dims(label, -1)
 
         if self.transform is not None:
-            image = self.transform(image)
+            augmented = self.transform(image=image)
+            image = augmented['image']
 
         return image, label
 
 
+def load_from_cache(name, df, reset=False, postfix='noCircle'):
+    name += str(config.IMG_SIZE) + postfix
 
-###############DUMP
-def prepare_sampler(df):
-    tr, val = train_test_split(df, stratify=df, test_size=config.VALIDATION_SIZE)
-    train_sampler = SubsetRandomSampler(list(tr.index))
-    valid_sampler = SubsetRandomSampler(list(val.index))
-    return train_sampler, valid_sampler
-
-def prepare_labels(y):
-    """ CLASSIFICATION SETUP: Transform 5 scores to vector representation"""
-    # From here: https://www.kaggle.com/pestipeti/keras-cnn-starter
-    values = np.array(y)
-    label_encoder = LabelEncoder()
-    integer_encoded = label_encoder.fit_transform(values)
-
-    onehot_encoder = OneHotEncoder(sparse=False)
-    integer_encoded = integer_encoded.reshape(len(integer_encoded), 1)
-    onehot_encoded = onehot_encoder.fit_transform(integer_encoded)
-
-    y = onehot_encoded
-    return y, label_encoder
+    path = config.DATA_CACHE_PATH.format(name)
+    if not reset and os.path.exists(path):
+        data = joblib.load(path, mmap_mode='r')
+        print(f'Load {name} from cache')
+        print(data.shape)
+    else:
+        print(f'Redo {name}')
+        data = load_train_image(df['path'].values, adjustment=False)
+        data = np.stack(data)
+        joblib.dump(data, path)
+        for i in range(10):
+            im = Image.fromarray(data[i])
+            im.save(f'../data/processed_img/{name}_{i}.jpeg')
+    return data
 
 if __name__ == '__main__':
     # train_dataset = RetinopathyDatasetTrain(csv_file='../data/train.csv')
     # df = train_dataset.data
     # print(prepare_labels(df['diagnosis']))
     # image_reader('../data/previous/resized_train_15/10_left.jpg')
-    list(cv_train_loader(cacheReset=True))
-    print('done')
+    # list(cv_train_loader(cacheReset=True))
+    # print('done')
+    list(cv_train_loader())
+    # workflow_mix()

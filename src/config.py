@@ -20,11 +20,12 @@ REMOTE_TEST_DATA_PATH = '../data/train.csv'
 REMOTE_TEST_IMAGE_PATH = '../data/train_images'
 
 DATA_PATH = '../data/'
-NUM_WORKERS = 0
+DATA_CACHE_PATH = '../data/cache/{}.p'
+NUM_WORKERS = 4
 
 VALIDATION_SIZE = 0.2
-BATCH_SIZE = 20
-IMG_SIZE = 256
+BATCH_SIZE = 30
+IMG_SIZE = 300
 NORMALIZE = [0.485, 0.456, 0.406], [0.229, 0.224, 0.225]
 # NORMALIZE = None
 # CUTOFF_COEF = [0.57, 1.37, 2.57, 3.57]

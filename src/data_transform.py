@@ -1,30 +1,49 @@
 import numpy as np
 import cv2
-from torchvision import transforms
+# from torchvision import transforms
+from albumentations import Compose, RandomBrightnessContrast, ShiftScaleRotate, Flip
+from albumentations.pytorch import ToTensor
 from skimage.color import rgb2gray,rgba2rgb
 import PIL.Image
 
 
 import config
 
-train_transform = transforms.Compose([
-    # transforms.Resize(config.IMG_SIZE),
-    transforms.RandomHorizontalFlip(p=0.2),
-    transforms.RandomVerticalFlip(p=0.2),
-    transforms.RandomRotation((-120, 120)),
-    # transforms.CenterCrop(config.IMG_SIZE),
-    transforms.RandomResizedCrop(config.IMG_SIZE, scale=(0.8, 1.0), ratio=(1.0, 1.0)),  # just mimic center zoom crop
-    transforms.ToTensor(),
-    # transforms.Normalize(*config.NORMALIZE)
-    ])
 
-valid_transform = transforms.Compose([
-    # transforms.RandomHorizontalFlip(),
-    # transforms.RandomRotation((-120, 120)),
-    # transforms.Resize(config.IMG_SIZE),
-    transforms.ToTensor(),
-    # transforms.Normalize(*config.NORMALIZE)
+train_transform = Compose([
+    Flip(always_apply=True),
+    ShiftScaleRotate(
+        shift_limit=0.1,
+        scale_limit=0.2,
+        rotate_limit=365,
+        p=1.0),
+    RandomBrightnessContrast(p=1.0),
+    ToTensor()
 ])
+
+valid_transform = Compose([
+    ToTensor()
+])
+
+
+# train_transform = transforms.Compose([
+#     # transforms.Resize(config.IMG_SIZE),
+#     transforms.RandomHorizontalFlip(p=0.2),
+#     transforms.RandomVerticalFlip(p=0.2),
+#     transforms.RandomRotation((-120, 120)),
+#     # transforms.CenterCrop(config.IMG_SIZE),
+#     transforms.RandomResizedCrop(config.IMG_SIZE, scale=(0.8, 1.0), ratio=(1.0, 1.0)),  # just mimic center zoom crop
+#     transforms.ToTensor(),
+#     # transforms.Normalize(*config.NORMALIZE)
+#     ])
+
+# valid_transform = transforms.Compose([
+#     # transforms.RandomHorizontalFlip(),
+#     # transforms.RandomRotation((-120, 120)),
+#     # transforms.Resize(config.IMG_SIZE),
+#     transforms.ToTensor(),
+#     # transforms.Normalize(*config.NORMALIZE)
+# ])
 
 def crop_image_from_gray(img,tol=7):
     """ Crop function copied from https://www.kaggle.com/chanhu/eye-inference-num-class-1-ver3"""

@@ -17,19 +17,23 @@ def seed_everything(seed):
 
 def main():
     seed_everything(42)
-#     train_old()
-    cv_train()
+    train_old()
+#     cv_train()
 
 def train_old():
-    model = EfficientNetModel(name='efficientnet-b4', fine_tune=False)
+    model = EfficientNetModel(name='efficientnet-b3', fine_tune=False, lr=2e-3)
+#     model = ModelHelper(name='resnet50', fine_tune=False)
     t, v = data_loader.workflow_mix()
-    model.train(t, v, accum_gradient=3, n_freeze=5, num_epochs=30, name='old_all')
+    model.train(t, v, accum_gradient=2, n_freeze=2, num_epochs=30, name='old_all')
 
 
 def cv_train():
     for i, (train_loader, test_loader) in enumerate(data_loader.cv_train_loader(cacheReset=False)):
-        obj = EfficientNetModel(name='efficientnet-b4', 
-                          path=os.path.join(config.CHECKOUT_PATH, '0.76_0.352_0.301_efficientnet-b4_old_all'),
+        # obj = EfficientNetModel(name='efficientnet-b4', 
+        #                   path=os.path.join(config.CHECKOUT_PATH, '0.76_0.352_0.301_efficientnet-b4_old_all'),
+        #                   fine_tune=False)
+        obj = ModelHelper(name='resnet50', 
+                          path=os.path.join(config.CHECKOUT_PATH, '0.76_0.350_0.308_resnet50_old_all'),
                           fine_tune=False)
                           
         obj.best_score = 0.85
