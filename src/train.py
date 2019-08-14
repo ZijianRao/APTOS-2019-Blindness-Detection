@@ -17,8 +17,8 @@ def seed_everything(seed):
 
 def main():
     seed_everything(42)
-    train_old()
-#     cv_train()
+#     train_old()
+    cv_train()
 
 def train_old():
     model = EfficientNetModel(name='efficientnet-b3', fine_tune=False, lr=2e-3)
@@ -29,15 +29,15 @@ def train_old():
 
 def cv_train():
     for i, (train_loader, test_loader) in enumerate(data_loader.cv_train_loader(cacheReset=False)):
-        # obj = EfficientNetModel(name='efficientnet-b4', 
-        #                   path=os.path.join(config.CHECKOUT_PATH, '0.76_0.352_0.301_efficientnet-b4_old_all'),
-        #                   fine_tune=False)
-        obj = ModelHelper(name='resnet50', 
-                          path=os.path.join(config.CHECKOUT_PATH, '0.76_0.350_0.308_resnet50_old_all'),
+        obj = EfficientNetModel(name='efficientnet-b3', 
+                          path=os.path.join(config.CHECKOUT_PATH, '0.79_0.303_0.283_efficientnet-b3_old_all'),
                           fine_tune=False)
+        # obj = ModelHelper(name='resnet50', 
+        #                   path=os.path.join(config.CHECKOUT_PATH, '0.76_0.350_0.308_resnet50_old_all'),
+        #                   fine_tune=False)
                           
         obj.best_score = 0.85
-        obj.train(train_loader, test_loader, accum_gradient=3, n_freeze=3, num_epochs=15, name=f'cv_{i}')
+        obj.train(train_loader, test_loader, accum_gradient=2, n_freeze=1, num_epochs=15, name=f'cv_{i}')
         pass
 
 if __name__ == '__main__':

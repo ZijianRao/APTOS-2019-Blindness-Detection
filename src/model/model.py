@@ -124,7 +124,7 @@ class ModelHelper:
             else:
                 valid_count = 0
 
-            if kappa_score < min(dump_kappa):
+            if kappa_score > max(dump_kappa):
                 self.check_out_valid(valid_score, kappa_score, name)
 
             if valid_count > 5:

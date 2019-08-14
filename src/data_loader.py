@@ -104,7 +104,7 @@ def path_maker(row):
 
 def load_train_image(path_group, img_size=config.IMG_SIZE, adjustment=True):
     """ Load train images based on input path info """
-    helper = functools.partial(image_reader, adjustment=True, img_size=img_size)
+    helper = functools.partial(image_reader, adjustment=adjustment, img_size=img_size)
     x_train = Parallel(n_jobs=psutil.cpu_count(), verbose=1)(
         delayed(helper)(fp) for fp in path_group)
     return x_train
@@ -147,7 +147,7 @@ class RetinopathyDataset(Dataset):
         return len(self.data)
 
     def __getitem__(self, idx):
-        image = self.image_group[idx, :, :, :]
+        image = self.image_group[idx]
         label = self.data['diagnosis'].values[idx]
         label = np.expand_dims(label, -1)
 
@@ -158,7 +158,7 @@ class RetinopathyDataset(Dataset):
         return image, label
 
 
-def load_from_cache(name, df, reset=False, postfix='noCircle'):
+def load_from_cache(name, df, reset=False, postfix='Circle'):
     name += str(config.IMG_SIZE) + postfix
 
     path = config.DATA_CACHE_PATH.format(name)
@@ -168,7 +168,7 @@ def load_from_cache(name, df, reset=False, postfix='noCircle'):
         print(data.shape)
     else:
         print(f'Redo {name}')
-        data = load_train_image(df['path'].values, adjustment=False)
+        data = load_train_image(df['path'].values, adjustment=True)
         data = np.stack(data)
         joblib.dump(data, path)
         for i in range(10):
