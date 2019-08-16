@@ -69,8 +69,8 @@ class ModelHelper:
     
     def prepare_optimizer_scheduler(self):
         optimizer = optim.Adam(self.plist, lr=self.lr)
-        # scheduler = lr_scheduler.StepLR(optimizer, step_size=5)
-        scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.1, patience=3)
+        # scheduler = lr_scheduler.StepLR(optimizer, step_size=15)
+        scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.2, patience=3)
         return optimizer, scheduler
 
 
@@ -80,12 +80,13 @@ class ModelHelper:
         model = self.model
         criterion = self.criterion
         dump_kappa = [0]
+        dump_valid = [1]
         valid_count = 0
 
         for epoch in range(1, num_epochs + 1):
             print(f'Epoch {epoch}/{num_epochs}')
             # Freeze the initial training to focus purely on linear part
-            if (epoch == n_freeze) and not self.fine_tune:
+            if (epoch == (n_freeze+1)) and not self.fine_tune:
                 print('------------')
                 print('Begin to train all parameters')
                 print('------------')
@@ -124,7 +125,7 @@ class ModelHelper:
             else:
                 valid_count = 0
 
-            if kappa_score > max(dump_kappa):
+            if kappa_score > max(dump_kappa) or valid_score < min(dump_valid):
                 self.check_out_valid(valid_score, kappa_score, name)
 
             if valid_count > 5:
@@ -133,10 +134,12 @@ class ModelHelper:
                 break
 
             dump_kappa.append(kappa_score)
+            dump_valid.append(valid_score)
 
             self.data_dump[f'{name}_epoch_{epoch}'] = (average_loss, valid_score, kappa_score)
             # update learning rate
             scheduler.step(kappa_score)
+            # scheduler.step()
 
         return model
     

@@ -25,9 +25,10 @@ def workflow_mix():
     data = load_train_description()
     data = data[data['set'] != 'new']
     train_df, valid_df = generate_split(data, 0.25)
-    train_data = load_from_cache('train_old', train_df)
 
+    train_data = load_from_cache('train_old', train_df)
     valid_data = load_from_cache('valid_old', valid_df)
+
     train_bucket = prepare_loader(train_data, train_df, data_transform.train_transform)
     valid_bucket = prepare_loader(valid_data, valid_df, data_transform.valid_transform)
 
@@ -110,7 +111,7 @@ def load_train_image(path_group, img_size=config.IMG_SIZE, adjustment=True):
     return x_train
 
 
-def image_reader(path, adjustment=True, img_size=config.IMG_SIZE):
+def image_reader(path, adjustment=False, img_size=config.IMG_SIZE):
     """ Read image resize it and return as numpy array"""
     image = cv2.imread(path)
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -158,7 +159,7 @@ class RetinopathyDataset(Dataset):
         return image, label
 
 
-def load_from_cache(name, df, reset=False, postfix='Circle'):
+def load_from_cache(name, df, reset=False, postfix='NoCircle'):
     name += str(config.IMG_SIZE) + postfix
 
     path = config.DATA_CACHE_PATH.format(name)
@@ -168,7 +169,7 @@ def load_from_cache(name, df, reset=False, postfix='Circle'):
         print(data.shape)
     else:
         print(f'Redo {name}')
-        data = load_train_image(df['path'].values, adjustment=True)
+        data = load_train_image(df['path'].values, adjustment=False)
         data = np.stack(data)
         joblib.dump(data, path)
         for i in range(10):

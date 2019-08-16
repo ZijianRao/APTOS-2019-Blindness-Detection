@@ -14,10 +14,11 @@ train_transform = Compose([
     Flip(always_apply=True),
     ShiftScaleRotate(
         shift_limit=0.1,
-        scale_limit=0.2,
+        scale_limit=(0, 0.35),
         rotate_limit=365,
         p=1.0),
     RandomBrightnessContrast(p=1.0),
+    # progressive resize exp ?
     ToTensor()
 ])
 

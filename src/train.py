@@ -21,16 +21,19 @@ def main():
     cv_train()
 
 def train_old():
-    model = EfficientNetModel(name='efficientnet-b3', fine_tune=False, lr=2e-3)
+    model = EfficientNetModel(name='efficientnet-b3', fine_tune=False, lr=1e-5,
+        path=os.path.join(config.CHECKOUT_PATH, '0.79_0.306_0.274_efficientnet-b3_old_all_no_circle'))
 #     model = ModelHelper(name='resnet50', fine_tune=False)
     t, v = data_loader.workflow_mix()
-    model.train(t, v, accum_gradient=2, n_freeze=2, num_epochs=30, name='old_all')
+    model.train(t, v, accum_gradient=2, n_freeze=1, num_epochs=5, name='old_all_no_circle', 
+    )
 
 
 def cv_train():
     for i, (train_loader, test_loader) in enumerate(data_loader.cv_train_loader(cacheReset=False)):
         obj = EfficientNetModel(name='efficientnet-b3', 
-                          path=os.path.join(config.CHECKOUT_PATH, '0.79_0.303_0.283_efficientnet-b3_old_all'),
+                          path=os.path.join(config.CHECKOUT_PATH, '0.79_0.306_0.274_efficientnet-b3_old_all_no_circle'),
+                        #   path=os.path.join(config.CHECKOUT_PATH, '0.79_0.303_0.283_efficientnet-b3_old_all'),
                           fine_tune=False)
         # obj = ModelHelper(name='resnet50', 
         #                   path=os.path.join(config.CHECKOUT_PATH, '0.76_0.350_0.308_resnet50_old_all'),
