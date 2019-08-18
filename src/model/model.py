@@ -1,11 +1,13 @@
 import pandas as pd
 import numpy as np
+import scipy as sp
 import datetime
 import collections
 import time
 import os
 from tqdm import tqdm
-from sklearn.metrics import cohen_kappa_score
+from functools import partial
+from sklearn.metrics import cohen_kappa_score, classification_report
 
 import torch
 import torch.nn as nn
@@ -24,7 +26,7 @@ device = torch.device("cuda:0")
 
 class ModelHelper:
     """ Only for training"""
-    def __init__(self, path=None, name=None, fine_tune=True, lr=1e-3):
+    def __init__(self, path=None, name=None, fine_tune=True, lr=1e-3, opt_kappa=False):
         self.path = path # use path to load trained model
         self.name = name
         self.lr = lr
@@ -36,7 +38,7 @@ class ModelHelper:
         self.data_dump = {}
         self.most_recent_loss = 0
         self.model, self.optimizer = amp.initialize(self.model, self.optimizer, opt_level="O1")
-        self.last_name = None
+        self.opt_kappa = opt_kappa
     
     
     def setup_model(self):
@@ -69,8 +71,10 @@ class ModelHelper:
     
     def prepare_optimizer_scheduler(self):
         optimizer = optim.Adam(self.plist, lr=self.lr)
-        # scheduler = lr_scheduler.StepLR(optimizer, step_size=15)
-        scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.2, patience=3)
+        # optimizer = optim.SGD(self.plist, lr=self.lr, momentum=0.9)
+        # optimizer = optim.SGD(self.plist, lr=self.lr)
+        scheduler = lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.5)
+        # scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.2, patience=3)
         return optimizer, scheduler
 
 
@@ -117,7 +121,7 @@ class ModelHelper:
             self.most_recent_loss = average_loss
             epoch_loss = running_loss / len(train_loader)
             print('Training Loss: {:.4f}'.format(epoch_loss))
-            valid_score, kappa_score = self.valid_model(valid_loader)
+            valid_score, kappa_score, kappa_opt, coefficients = self.valid_model(valid_loader)
 
             if kappa_score < dump_kappa[-1]:
                 valid_count += 1
@@ -136,11 +140,12 @@ class ModelHelper:
             dump_kappa.append(kappa_score)
             dump_valid.append(valid_score)
 
-            self.data_dump[f'{name}_epoch_{epoch}'] = (average_loss, valid_score, kappa_score)
+            self.data_dump[f'{name}_epoch_{epoch}'] = (average_loss, valid_score, kappa_score, kappa_opt, coefficients)
             # update learning rate
-            scheduler.step(kappa_score)
-            # scheduler.step()
+            # scheduler.step(kappa_score)
+            scheduler.step()
 
+        self.save_log(name)
         return model
     
     def valid_model(self, valid_loader):
@@ -164,25 +169,42 @@ class ModelHelper:
                 running_loss += loss.item() * inputs.size(0)
                 counter += 1
         loss = running_loss / (counter * valid_loader.batch_size)
-        y_pred = np.concatenate(y_pred)
-        y_pred = score_to_level(y_pred)
+        y_pred_reg = np.concatenate(y_pred)
+        y_pred = score_to_level(y_pred_reg.copy())
         y_valid = np.concatenate(y_valid)
+        analyze_valid(y_valid, y_pred)
         val_kappa = cohen_kappa_score(y_valid, y_pred, weights='quadratic')
-        print(f'Valid Kappa Loss: {val_kappa:.4f}, MSE Loss: {loss:.4f}')
-        return loss, val_kappa
+
+        if self.opt_kappa:
+            optR = OptimizedRounder()
+            optR.fit(y_pred_reg, y_valid)
+            coefficients = optR.coefficients()
+            y_pred_opt = optR.predict(y_pred_reg, coefficients)
+            val_kappa_opt = cohen_kappa_score(y_valid, y_pred_opt, weights='quadratic')
+        else:
+            print('No optimized Kappa')
+            val_kappa_opt = val_kappa
+            coefficients = [0.5, 1.5, 2.5, 3.5]
+
+        print(coefficients)
+        print(f'Valid Kappa Loss: {val_kappa:.4f}, Optimized Kappa Loss: {val_kappa_opt:.4f}, MSE Loss: {loss:.4f}')
+        return loss, val_kappa, val_kappa_opt, coefficients
     
-    def save_log(self):
+    def save_log(self, name):
         df = pd.DataFrame(self.data_dump).T
-        df.columns = ['Train_Loss', 'Valid_Loss', 'Valid_Kappa_Score']
-        name = f'{datetime.datetime.now()}_{self.name}.csv'
+        df.columns = ['Train_Loss', 'Valid_Loss', 'Valid_Kappa_Score', 'Optimized_Valid_Kappa_Score', 'Coefficients']
+        name = f'{datetime.datetime.now()}_{self.name}_{name}.csv'
         df.to_csv(os.path.join(config.LOG_PATH, name))
         print(f'Log {name} saved!')
 
     def check_out_valid(self, valid_score, valid_kappa, postfix=''):
         name = f'{valid_kappa:.2f}_{valid_score:.3f}_{self.most_recent_loss:.3f}_{self.name}_{postfix}'
         torch.save(self.model.state_dict(), os.path.join(config.CHECKOUT_PATH, name))
-        self.last_name = name
         print(f'Save checkpoint!')
+
+def analyze_valid(y_valid, y_pred):
+    """ Provide auc for """
+    print(classification_report(y_valid, y_pred, labels=[0, 1, 2, 3, 4]), flush=True)
 
 def score_to_level(output):
     coef = config.CUTOFF_COEF
@@ -198,3 +220,49 @@ def score_to_level(output):
         else:
             output[i] = 4
     return output.astype(int)
+
+
+#https://www.kaggle.com/abhishek/optimizer-for-quadratic-weighted-kappa
+class OptimizedRounder(object):
+    def __init__(self):
+        self.coef_ = 0
+
+    def _kappa_loss(self, coef, X, y):
+        X_p = np.copy(X)
+        for i, pred in enumerate(X_p):
+            if pred < coef[0]:
+                X_p[i] = 0
+            elif pred >= coef[0] and pred < coef[1]:
+                X_p[i] = 1
+            elif pred >= coef[1] and pred < coef[2]:
+                X_p[i] = 2
+            elif pred >= coef[2] and pred < coef[3]:
+                X_p[i] = 3
+            else:
+                X_p[i] = 4
+
+        ll = cohen_kappa_score(y, X_p, weights='quadratic')
+        return -ll
+
+    def fit(self, X, y):
+        loss_partial = partial(self._kappa_loss, X=X, y=y)
+        initial_coef = [0.5, 1.5, 2.5, 3.5]
+        self.coef_ = sp.optimize.minimize(loss_partial, initial_coef, method='nelder-mead')
+
+    def predict(self, X, coef):
+        X_p = np.copy(X)
+        for i, pred in enumerate(X_p):
+            if pred < coef[0]:
+                X_p[i] = 0
+            elif pred >= coef[0] and pred < coef[1]:
+                X_p[i] = 1
+            elif pred >= coef[1] and pred < coef[2]:
+                X_p[i] = 2
+            elif pred >= coef[2] and pred < coef[3]:
+                X_p[i] = 3
+            else:
+                X_p[i] = 4
+        return X_p
+
+    def coefficients(self):
+        return self.coef_['x']

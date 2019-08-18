@@ -8,7 +8,7 @@ from tqdm import tqdm
 from PIL import Image
 import joblib
 
-from sklearn.model_selection import train_test_split, StratifiedShuffleSplit, KFold
+from sklearn.model_selection import train_test_split, StratifiedShuffleSplit, KFold, StratifiedKFold
 
 import cv2
 import torch
@@ -51,14 +51,16 @@ def cv_train_loader(cacheReset=False, fold=5):
     # use new as valid
     df = data[data['set'] == 'new']
 
-    kf = KFold(n_splits=fold)
+    # kf = KFold(n_splits=fold)
+    kf = StratifiedKFold(n_splits=fold, random_state=42)
     
     data = load_from_cache('train_new', df)
 
     def list_indexer(data, index_array):
         return [data[i] for i in index_array]
 
-    for train_index, valid_index in kf.split(df):
+    # for train_index, valid_index in kf.split(df):
+    for train_index, valid_index in kf.split(df, y=df['diagnosis']):
         train = df.iloc[train_index]
         train_image = list_indexer(data, train_index)
         valid = df.iloc[valid_index]

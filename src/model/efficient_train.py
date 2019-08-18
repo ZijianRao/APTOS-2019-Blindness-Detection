@@ -7,8 +7,8 @@ import torch.nn as nn
 device = torch.device("cuda:0")
 
 class EfficientNetModel(ModelHelper):
-    def __init__(self, path=None, name=None, fine_tune=True, lr=1e-3):
-        super().__init__(path=path, name=name, fine_tune=fine_tune, lr=lr)
+    def __init__(self, path=None, name=None, fine_tune=True, lr=1e-3, opt_kappa=False):
+        super().__init__(path=path, name=name, fine_tune=fine_tune, lr=lr, opt_kappa=opt_kappa)
     
     def setup_model(self):
         model = EfficientNet.from_pretrained(self.name)
