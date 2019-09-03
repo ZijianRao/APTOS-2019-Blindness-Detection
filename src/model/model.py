@@ -14,7 +14,8 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.optim import lr_scheduler
 import torchvision.models as models
-from torchvision.models.resnet import model_urls
+from torchvision.models.resnet import model_urls as resnet_model_urls
+from torchvision.models.densenet import model_urls as densenet_model_urls
 from efficientnet_pytorch import EfficientNet
 from apex import amp
 
@@ -26,11 +27,10 @@ device = torch.device("cuda:0")
 
 class ModelHelper:
     """ Only for training"""
-    def __init__(self, path=None, name=None, fine_tune=True, lr=1e-3, opt_kappa=False):
+    def __init__(self, path=None, name=None, lr=1e-3, opt_kappa=False):
         self.path = path # use path to load trained model
         self.name = name
         self.lr = lr
-        self.fine_tune = fine_tune
         self.criterion = nn.MSELoss()
         self.model, self.plist = self.setup_model()
         self.optimizer, self.scheduler = self.prepare_optimizer_scheduler()
@@ -43,29 +43,33 @@ class ModelHelper:
     
     def setup_model(self):
         model_template = getattr(models, self.name)
-        model = model_template(pretrained=False)
-
-        if self.path is None:
-            model_dict = torch.hub.load_state_dict_from_url(model_urls[self.name])
-            model.load_state_dict(model_dict)
-        else:
-            num_features = model.fc.in_features
-            model.fc = nn.Linear(num_features, 1)
-            model.load_state_dict(torch.load(self.path))
+        model = model_template(pretrained=True)
+        if 'res' in self.name:
+            last_layer_name = 'fc'
+        elif 'densenet' in self.name:
+            last_layer_name = 'classifier'
 
         for param in model.parameters():
             param.requires_grad = False
-        num_features = model.fc.in_features
-        model.fc = nn.Linear(num_features, 1)
+
+        if self.path is None:
+            # model_dict = torch.hub.load_state_dict_from_url(resnet_model_urls[self.name])
+            # model.load_state_dict(model_dict)
+
+
+            num_features = getattr(model, last_layer_name).in_features
+            setattr(model, last_layer_name, nn.Linear(num_features, 1))
+        else:
+            num_features = getattr(model, last_layer_name).in_features
+            setattr(model, last_layer_name, nn.Linear(num_features, 1))
+            model.load_state_dict(torch.load(self.path))
+            # no need to freeze
+            # for param in model.parameters():
+            #     param.requires_grad = False
+
 
         model = model.to(device)
-        if self.fine_tune:
-                plist = [
-                        # {'params': model.layer4.parameters(), 'lr': self.lr, 'weight': 0.001},
-                        {'params': model.fc.parameters(), 'lr': self.lr}
-                        ]
-        else:
-            plist = model.parameters()
+        plist = model.parameters()
 
         return model, plist
     
@@ -73,7 +77,7 @@ class ModelHelper:
         optimizer = optim.Adam(self.plist, lr=self.lr)
         # optimizer = optim.SGD(self.plist, lr=self.lr, momentum=0.9)
         # optimizer = optim.SGD(self.plist, lr=self.lr)
-        scheduler = lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.5)
+        scheduler = lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
         # scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.2, patience=3)
         return optimizer, scheduler
 
@@ -90,7 +94,7 @@ class ModelHelper:
         for epoch in range(1, num_epochs + 1):
             print(f'Epoch {epoch}/{num_epochs}')
             # Freeze the initial training to focus purely on linear part
-            if (epoch == (n_freeze+1)) and not self.fine_tune:
+            if epoch == (n_freeze+1):
                 print('------------')
                 print('Begin to train all parameters')
                 print('------------')
@@ -115,6 +119,11 @@ class ModelHelper:
                 running_loss += loss.item() * inputs.size(0)
                 counter += 1
                 tk0.set_postfix(epoch=epoch, loss=(running_loss / (counter * train_loader.batch_size)))
+
+            # handle tiny bug
+            if (bi + 1) % accum_gradient != 0:
+                optimizer.step()
+                optimizer.zero_grad()   # clear accumulated gradient
 
             # summary part
             average_loss = running_loss / (counter * train_loader.batch_size)
@@ -206,8 +215,7 @@ def analyze_valid(y_valid, y_pred):
     """ Provide auc for """
     print(classification_report(y_valid, y_pred, labels=[0, 1, 2, 3, 4]), flush=True)
 
-def score_to_level(output):
-    coef = config.CUTOFF_COEF
+def score_to_level(output, coef=config.CUTOFF_COEF):
     for i, pred in enumerate(output):
         if pred < coef[0]:
             output[i] = 0

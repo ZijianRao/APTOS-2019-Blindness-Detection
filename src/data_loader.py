@@ -21,16 +21,30 @@ import pickle
 import data_transform
 import config
 
-def workflow_mix():
+def workflow_new():
     data = load_train_description()
-    data = data[data['set'] != 'new']
-    train_df, valid_df = generate_split(data, 0.25)
+    train_df = data[data['set'] != 'new'].reset_index(drop=True)
+    valid_df = data[data['set'] == 'new'].reset_index(drop=True)
 
     train_data = load_from_cache('train_old', train_df)
     valid_data = load_from_cache('valid_old', valid_df)
 
-    train_bucket = prepare_loader(train_data, train_df, data_transform.train_transform)
-    valid_bucket = prepare_loader(valid_data, valid_df, data_transform.valid_transform)
+    train_bucket = prepare_loader(train_data, train_df, data_transform.train_transform, num_workers=config.NUM_WORKERS)
+    valid_bucket = prepare_loader(valid_data, valid_df, data_transform.valid_transform, num_workers=0)
+
+    return train_bucket, valid_bucket
+
+def workflow_mix():
+    data = load_train_description()
+    data = data[data['set'] != 'new']
+    train_df, valid_df = generate_split(data, 0.2)
+    # train_df, valid_df = generate_split(data, 0.25)
+
+    train_data = load_from_cache('train_old', train_df)
+    valid_data = load_from_cache('valid_old', valid_df)
+
+    train_bucket = prepare_loader(train_data, train_df, data_transform.train_transform, num_workers=config.NUM_WORKERS)
+    valid_bucket = prepare_loader(valid_data, valid_df, data_transform.valid_transform, num_workers=0)
 
     return train_bucket, valid_bucket
 
@@ -51,23 +65,23 @@ def cv_train_loader(cacheReset=False, fold=5):
     # use new as valid
     df = data[data['set'] == 'new']
 
-    # kf = KFold(n_splits=fold)
-    kf = StratifiedKFold(n_splits=fold, random_state=42)
+    kf = KFold(n_splits=fold)
+    # kf = StratifiedKFold(n_splits=fold, random_state=42)
     
     data = load_from_cache('train_new', df)
 
     def list_indexer(data, index_array):
         return [data[i] for i in index_array]
 
-    # for train_index, valid_index in kf.split(df):
-    for train_index, valid_index in kf.split(df, y=df['diagnosis']):
+    for train_index, valid_index in kf.split(df):
+    # for train_index, valid_index in kf.split(df, y=df['diagnosis']):
         train = df.iloc[train_index]
         train_image = list_indexer(data, train_index)
         valid = df.iloc[valid_index]
         valid_image = list_indexer(data, valid_index)
 
-        loader_tmp1 = prepare_loader(train_image, train, data_transform.train_transform)
-        loader_tmp2 = prepare_loader(valid_image, valid, data_transform.valid_transform)
+        loader_tmp1 = prepare_loader(train_image, train, data_transform.train_transform, num_workers=config.NUM_WORKERS)
+        loader_tmp2 = prepare_loader(valid_image, valid, data_transform.valid_transform, num_workers=0)
 
         yield loader_tmp1, loader_tmp2
 
@@ -119,12 +133,12 @@ def image_reader(path, adjustment=False, img_size=config.IMG_SIZE):
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
     image = data_transform.crop_image_from_gray(image)
-    if adjustment:
+    # if adjustment:
         # only apply circle crop
-        image = data_transform.circle_crop(image)
+    image = data_transform.circle_crop(image)
         
     image = cv2.resize(image, (img_size, img_size))
-    image = cv2.addWeighted(image, 4, cv2.GaussianBlur(image, (0, 0), 10), -4, 128)
+    # image = cv2.addWeighted(image, 4, cv2.GaussianBlur(image, (0, 0), 10), -4, 128)
 
     image = image.astype(np.uint8)
     # image = transforms.ToPILImage()(image)
@@ -132,9 +146,9 @@ def image_reader(path, adjustment=False, img_size=config.IMG_SIZE):
     return image
 
 
-def prepare_loader(data, labels, transform):
+def prepare_loader(data, labels, transform, num_workers):
     dataset = RetinopathyDataset(labels, data, transform)
-    data_loader = torch.utils.data.DataLoader(dataset, batch_size=config.BATCH_SIZE, num_workers=config.NUM_WORKERS, shuffle=True)
+    data_loader = torch.utils.data.DataLoader(dataset, batch_size=config.BATCH_SIZE, num_workers=num_workers, shuffle=True, pin_memory=False)
     return data_loader
 
 
@@ -161,7 +175,7 @@ class RetinopathyDataset(Dataset):
         return image, label
 
 
-def load_from_cache(name, df, reset=False, postfix='NoCircle'):
+def load_from_cache(name, df, reset=False, postfix='circleOnly'):
     name += str(config.IMG_SIZE) + postfix
 
     path = config.DATA_CACHE_PATH.format(name)
@@ -186,5 +200,6 @@ if __name__ == '__main__':
     # image_reader('../data/previous/resized_train_15/10_left.jpg')
     # list(cv_train_loader(cacheReset=True))
     # print('done')
-    list(cv_train_loader())
+    # list(cv_train_loader())
     # workflow_mix()
+    workflow_new()

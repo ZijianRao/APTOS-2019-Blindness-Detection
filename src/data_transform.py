@@ -1,7 +1,7 @@
 import numpy as np
 import cv2
 # from torchvision import transforms
-from albumentations import Compose, RandomBrightnessContrast, ShiftScaleRotate, Flip, Cutout
+from albumentations import Compose, RandomBrightnessContrast, ShiftScaleRotate, Flip, Cutout, HueSaturationValue, RandomGamma, RGBShift, RandomCrop, JpegCompression
 from albumentations.pytorch import ToTensor
 from skimage.color import rgb2gray,rgba2rgb
 import PIL.Image
@@ -11,15 +11,19 @@ import config
 
 
 train_transform = Compose([
-    Flip(p=0.8),
+    JpegCompression(quality_lower=95, quality_upper=100),
     Cutout(num_holes=8, max_h_size=20, max_w_size=20, p=0.8),
+    Flip(p=0.8),
+    HueSaturationValue(p=0.8),
+    RandomGamma(),
+    RGBShift(p=0.8),
+    RandomBrightnessContrast(brightness_limit=0.4, 
+        contrast_limit=0.4, p=0.8),
     ShiftScaleRotate(
         shift_limit=0.1,
         scale_limit=(0, 0.35),
         rotate_limit=365,
         p=1),
-    RandomBrightnessContrast(brightness_limit=0.4, 
-        contrast_limit=0.4, p=0.8),
     # progressive resize exp ?
     ToTensor()
 ])
